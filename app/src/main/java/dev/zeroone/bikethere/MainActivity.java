@@ -11,6 +11,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
@@ -248,9 +250,11 @@ public final class MainActivity extends ComponentActivity {
     private View trackingPanel() {
         Tracker.State state = TrackerService.state();
         FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(ui.shape(RideColors.TRACK, 22, null));
+        panel.setBackground(new LayerDrawable(new Drawable[]{
+                ui.shape(RideColors.TRACK, 22, null),
+                new TrackBackdrop()
+        }));
         panel.setClipToOutline(true);
-        panel.addView(new TrackBackdrop(this), new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout controls = ui.column();
         controls.setPadding(ui.dp(19), ui.dp(19), ui.dp(19), ui.dp(19));
