@@ -24,7 +24,7 @@ Install JDK 17 or later and Android SDK Platform 36 with Build Tools 35.0.0, the
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 ```
 
-The debug build uses a separate application ID. Use the signed release for rides you want to keep across release updates.
+The debug preview uses a separate application ID and a generated debug certificate. Previews built in different GitHub jobs can have different certificates and may require a fresh install. A signed release installs alongside the preview. Use the signed release for rides you want to keep across updates.
 
 ## Publish a signed APK
 
@@ -40,8 +40,8 @@ The script creates the signing key once, stores it and its password under `~/.bi
 Create and push a version tag from the intended release commit:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 The Android workflow tests the app, builds the APK, checks its signing certificate and attaches it to a GitHub Release. Each higher version tag produces a higher Android version code. If the secrets are set after a tag was pushed, rerun the failed release job in GitHub Actions.
@@ -58,8 +58,8 @@ gh auth setup-git
 git clone https://github.com/ZeroOne3010/bike-there.git
 cd bike-there
 bash scripts/setup-signing.sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 GitHub builds and signs the APK. Termux generates the key and sends it to Actions as an encrypted repository secret. If a release key already exists, restore that key and pass its backup directory to the script.

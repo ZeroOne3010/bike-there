@@ -11,6 +11,7 @@ import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.view.Gravity;
 import android.view.View;
+import android.view.Window;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -41,22 +42,25 @@ final class RideUi {
     }
 
     void edgeToEdge(Activity activity, View root) {
-        WindowCompat.setDecorFitsSystemWindows(activity.getWindow(), false);
+        Window window = activity.getWindow();
+        // Android's insets controller needs the decor view, even before setContentView.
+        View decor = window.getDecorView();
+        WindowCompat.setDecorFitsSystemWindows(window, false);
         if (Build.VERSION.SDK_INT < 35) {
-            activity.getWindow().setStatusBarColor(Color.TRANSPARENT);
-            activity.getWindow().setNavigationBarColor(Color.TRANSPARENT);
+            window.setStatusBarColor(Color.TRANSPARENT);
+            window.setNavigationBarColor(Color.TRANSPARENT);
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            activity.getWindow().setNavigationBarContrastEnforced(false);
+            window.setNavigationBarContrastEnforced(false);
         }
-        var bars = WindowCompat.getInsetsController(activity.getWindow(), root);
+        var bars = WindowCompat.getInsetsController(window, decor);
         bars.setAppearanceLightStatusBars(!colours.dark());
         bars.setAppearanceLightNavigationBars(!colours.dark());
-        ViewCompat.setOnApplyWindowInsetsListener(root, (view, window) -> {
-            Insets safe = window.getInsets(WindowInsetsCompat.Type.systemBars()
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            Insets safe = insets.getInsets(WindowInsetsCompat.Type.systemBars()
                     | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
             root.setPadding(safe.left, safe.top, safe.right, safe.bottom);
-            return window;
+            return insets;
         });
     }
 
