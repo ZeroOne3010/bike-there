@@ -1,0 +1,96 @@
+name: Android
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Test and build
+        run: bash gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+      - name: Upload test APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Bike-There-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - name: Install Android SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+      - name: Derive Android version from the tag
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+            echo "Expected a tag such as v0.1.0" >&2
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]}
+          minor=${BASH_REMATCH[2]}
+          patch=${BASH_REMATCH[3]}
+          version_code=$((major * 1000000 + minor * 1000 + patch))
+          if (( version_code < 1 || version_code > 2100000000 )); then
+            echo "Android version code is out of range" >&2
+            exit 1
+          fi
+          {
+            echo "BIKE_THERE_VERSION_CODE=$version_code"
+            echo "BIKE_THERE_VERSION_NAME=${GITHUB_REF_NAME#v}"
+          } >> "$GITHUB_ENV"
+      - name: Build and verify signed APK
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          BIKE_THERE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          EXPECTED_CERTIFICATE: ${{ vars.ANDROID_SIGNING_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEYSTORE_BASE64" || -z "$BIKE_THERE_KEYSTORE_PASSWORD" || ! "$EXPECTED_CERTIFICATE" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Set up Android signing using scripts/setup-signing.sh first." >&2
+            exit 1
+          fi
+          umask 077
+          export BIKE_THERE_KEYSTORE="$RUNNER_TEMP/bike-there.p12"
+          trap 'rm -f "$BIKE_THERE_KEYSTORE"' EXIT
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$BIKE_THERE_KEYSTORE"
+          unset SIGNING_KEYSTORE_BASE64
+          bash gradlew --no-daemon assembleRelease
+          apk="app/build/outputs/apk/release/app-release.apk"
+          fingerprint=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk" |
+                        awk '/Signer #1 certificate SHA-256 digest:/ {print $NF}')
+          if [[ "$fingerprint" != "$EXPECTED_CERTIFICATE" ]]; then
+            echo "APK signing certificate does not match the configured release key." >&2
+            exit 1
+          fi
+          cp "$apk" "Bike-There-$GITHUB_REF_NAME.apk"
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "Bike-There-$GITHUB_REF_NAME.apk" --verify-tag --generate-notes
