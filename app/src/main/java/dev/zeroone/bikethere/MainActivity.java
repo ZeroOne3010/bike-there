@@ -789,7 +789,8 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void add(View view, int bottomMargin) {
-        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2);
+        LinearLayout.LayoutParams size = view.getLayoutParams() instanceof LinearLayout.LayoutParams existing
+                ? existing : new LinearLayout.LayoutParams(-1, -2);
         size.bottomMargin = ui.dp(bottomMargin);
         content.addView(view, size);
     }
