@@ -5,6 +5,7 @@ plugins {
 android {
     namespace 'dev.zeroone.bikethere'
     compileSdk 36
+    buildToolsVersion '35.0.0'
 
     defaultConfig {
         applicationId 'dev.zeroone.bikethere'
@@ -45,5 +46,6 @@ android {
 }
 
 dependencies {
+    implementation 'androidx.activity:activity:1.11.0'
     testImplementation 'junit:junit:4.13.2'
 }

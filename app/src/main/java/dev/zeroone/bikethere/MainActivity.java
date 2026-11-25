@@ -1,7 +1,6 @@
 package dev.zeroone.bikethere;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
@@ -33,6 +32,10 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.ComponentActivity;
+import androidx.activity.OnBackPressedCallback;
+import androidx.core.content.ContextCompat;
+
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -44,7 +47,7 @@ import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.Locale;
 
-public final class MainActivity extends Activity {
+public final class MainActivity extends ComponentActivity {
     static final int PAPER = 0xfff4f5ef;
     static final int INK = 0xff192820;
     static final int MUTED = 0xff455a4e;
@@ -67,6 +70,18 @@ public final class MainActivity extends Activity {
     private boolean openToArm;
     private String pendingArm;
 
+    private final OnBackPressedCallback back = new OnBackPressedCallback(false) {
+        @Override
+        public void handleOnBackPressed() {
+            if (selectedRide != null) {
+                closeRide();
+            } else {
+                page = 0;
+                render(false);
+            }
+        }
+    };
+
     private final BroadcastReceiver statusChanges = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             render(true);
@@ -76,6 +91,7 @@ public final class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        getOnBackPressedDispatcher().addCallback(this, back);
         store = new RideStore(this);
         preferences = TrackerService.preferences(this);
         if (TrackerService.state() == Tracker.State.DISARMED) {
@@ -98,11 +114,7 @@ public final class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         IntentFilter filter = new IntentFilter(TrackerService.UPDATE);
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(statusChanges, filter, RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(statusChanges, filter);
-        }
+        ContextCompat.registerReceiver(this, statusChanges, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         render(true);
     }
 
@@ -140,6 +152,7 @@ public final class MainActivity extends Activity {
     }
 
     private void render(boolean keepScroll) {
+        back.setEnabled(selectedRide != null || page != 0);
         int scrollPosition = keepScroll && scroll != null ? scroll.getScrollY() : 0;
         if (keepScroll && selectedRide != null && content != null) {
             refreshTrackerStatus();
@@ -500,18 +513,6 @@ public final class MainActivity extends Activity {
     private void closeRide() {
         selectedRide = null;
         render(false);
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (selectedRide != null) {
-            closeRide();
-        } else if (page != 0) {
-            page = 0;
-            render(false);
-        } else {
-            super.onBackPressed();
-        }
     }
 
     private void arm(String action) {

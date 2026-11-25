@@ -37,6 +37,7 @@ final class RouteMap extends View {
     private final List<Image> tiles = new ArrayList<>();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final Path path = new Path();
+    private final RectF tileBounds = new RectF();
     private final boolean maps;
     private final float density;
     private double originX;
@@ -217,8 +218,9 @@ final class RouteMap extends View {
         float size = TILE_PX * density;
         for (Image image : tiles) {
             Tile tile = image.tile();
-            canvas.drawBitmap(image.bitmap(), null, new RectF(tile.screenX(), tile.screenY(),
-                    tile.screenX() + size + 1, tile.screenY() + size + 1), paint);
+            tileBounds.set(tile.screenX(), tile.screenY(),
+                    tile.screenX() + size + 1, tile.screenY() + size + 1);
+            canvas.drawBitmap(image.bitmap(), null, tileBounds, paint);
         }
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
