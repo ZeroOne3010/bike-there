@@ -33,12 +33,14 @@ jobs:
           target: google_apis
           emulator-options: -no-window -no-audio -gpu swiftshader -no-snapshot -no-boot-anim -no-metrics
           script: |
-            adb install app/build/outputs/apk/debug/app-debug.apk
+            adb shell cmd location set-location-enabled false
+            adb install -g app/build/outputs/apk/debug/app-debug.apk
             adb shell am start -W -n dev.zeroone.bikethere.debug/dev.zeroone.bikethere.MainActivity
             sleep 2
             adb shell pidof dev.zeroone.bikethere.debug || { adb logcat -d -b crash; exit 1; }
             adb shell uiautomator dump /data/local/tmp/bike-there.xml
             adb shell cat /data/local/tmp/bike-there.xml | grep -Fq 'text="BIKE THERE"' || { adb logcat -d -b crash; exit 1; }
+            adb shell cat /data/local/tmp/bike-there.xml | grep -Fq 'text="Location off"'
       - name: Upload test APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

@@ -5,7 +5,6 @@ record RideColors(boolean dark, int paper, int panel, int ink, int muted, int li
     static final int TRACK = 0xff242034;
     static final int SIGNAL = 0xffdafa5e;
     static final int ON_TRACK = 0xfff9f5ff;
-    static final int TRACK_MUTED = 0xffc7bfda;
 
     static RideColors forDark(boolean dark) {
         return dark

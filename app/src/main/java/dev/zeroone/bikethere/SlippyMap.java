@@ -26,7 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 class SlippyMap extends View {
-    static final double MIN_ZOOM = 2;
+    static final double MIN_ZOOM = 0;
     static final double MAX_ZOOM = 19;
     private static final String COPYRIGHT = "© OpenStreetMap contributors";
     private static final ExecutorService REQUESTS = Executors.newFixedThreadPool(3);
@@ -48,6 +48,8 @@ class SlippyMap extends View {
     private final Map<String, Long> failures = new HashMap<>();
     private final File cache;
     private final boolean tilesEnabled;
+    private boolean showTiles = true;
+    private int userCameraChanges;
     private final GestureDetector gestures;
     private final ScaleGestureDetector scale;
     private boolean moving;
@@ -68,6 +70,7 @@ class SlippyMap extends View {
 
             @Override public boolean onScroll(MotionEvent start, MotionEvent event, float dx, float dy) {
                 if (!scale.isInProgress() && event.getPointerCount() == 1) {
+                    userCameraChanges++;
                     setCamera(centreX + dx / world(), centreY + dy / world(), zoom);
                 }
                 return true;
@@ -106,9 +109,21 @@ class SlippyMap extends View {
     }
 
     private void zoomAt(double amount, float x, float y) {
+        userCameraChanges++;
         double target = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + amount));
         double delta = (1 - Math.pow(2, zoom - target)) / world();
         setCamera(centreX + (x - getWidth() / 2.0) * delta, centreY + (y - getHeight() / 2.0) * delta, target);
+    }
+
+    int userCameraChanges() {
+        return userCameraChanges;
+    }
+
+    void showTiles(boolean show) {
+        if (showTiles != show) {
+            showTiles = show;
+            invalidate();
+        }
     }
 
     void onCameraChanged() {}
@@ -177,11 +192,11 @@ class SlippyMap extends View {
         super.onDraw(canvas);
         canvas.drawColor(colours.panel());
         drawGrid(canvas);
-        if (tilesEnabled) {
+        if (tilesEnabled && showTiles) {
             drawTiles(canvas);
         }
         drawContent(canvas);
-        if (tilesEnabled) {
+        if (tilesEnabled && showTiles) {
             paint.setStyle(Paint.Style.FILL);
             paint.setTextSize(10 * density);
             float width = paint.measureText(COPYRIGHT);

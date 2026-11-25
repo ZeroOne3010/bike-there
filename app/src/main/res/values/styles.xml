@@ -5,6 +5,7 @@
     <string name="radius_metres">%1$d m</string>
     <string name="map_coordinates">%1$s, %2$s</string>
     <string name="map_no_centre">No centre selected</string>
+    <string name="map_approximate">Approximate location. Tap the map to set the centre.</string>
     <string name="map_locating">Finding your location…</string>
     <string name="ride_duration">%1$s moving · %2$s elapsed</string>
     <string name="profile_speed">%1$.1f km/h</string>

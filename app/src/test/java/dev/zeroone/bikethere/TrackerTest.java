@@ -96,6 +96,27 @@ public class TrackerTest {
         assertTrue(tracker.idleExpired(120_000, 60_000));
     }
 
+    @Test
+    public void liveStatsUseMovingTimeAndResetOnFinish() {
+        tracker.arm(0);
+        tracker.startManually();
+        assertTrue(tracker.manualPending());
+        fix(2, 61, 24, 0);
+        assertFalse(tracker.manualPending());
+        fix(4, 61.0001, 24, 5);
+        fix(6, 61.0002, 24, 7);
+        stopForThirtySeconds(8, 61.0002, 24);
+        Tracker.LiveStats stats = tracker.liveStats(38_000);
+        assertEquals(36_000, stats.elapsedMillis());
+        assertEquals(4_000, stats.movingMillis());
+        assertEquals(Ride.meters(61, 24, 61.0002, 24) / 4, stats.averageSpeedMps(), .001);
+        assertEquals(7, stats.topSpeedMps(), .001);
+        assertEquals(3, tracker.liveRoute().size());
+        assertNotNull(tracker.finish(38_000, PLACES));
+        assertEquals(Tracker.LiveStats.EMPTY, tracker.liveStats(39_000));
+        assertTrue(tracker.liveRoute().isEmpty());
+    }
+
     private Ride stopForThirtySeconds(int start, double lat, double lon) {
         for (int t = start; t < start + 30; t += 2) {
             assertNull(fix(t, lat, lon, 0));

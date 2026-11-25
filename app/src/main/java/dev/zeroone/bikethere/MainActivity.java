@@ -11,17 +11,19 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.LayerDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.location.Location;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -49,6 +51,7 @@ public final class MainActivity extends ComponentActivity {
     private static final int LOCATION_PERMISSION = 10;
     private static final int NOTIFICATION_PERMISSION = 11;
     private static final int EXPORT = 12;
+    private static final int MAP_PERMISSION = 13;
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT);
 
     private RideStore store;
@@ -64,6 +67,16 @@ public final class MainActivity extends ComponentActivity {
     private String exportingRide;
     private boolean openToArm;
     private String pendingArm;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private CancellationSignal mapRequest;
+    private Location roughLocation;
+    private LiveTrackerPanel livePanel;
+    private final Runnable liveTick = new Runnable() {
+        @Override public void run() {
+            updateLivePanel();
+            uiHandler.postDelayed(this, 1_000L);
+        }
+    };
 
     private final OnBackPressedCallback back = new OnBackPressedCallback(false) {
         @Override
@@ -73,13 +86,18 @@ public final class MainActivity extends ComponentActivity {
             } else {
                 page = 0;
                 render(false);
+                findMapLocation(false);
             }
         }
     };
 
     private final BroadcastReceiver statusChanges = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            render(true);
+            if (TrackerService.LIVE_UPDATE.equals(intent.getAction())) {
+                updateLivePanel();
+            } else {
+                render(true);
+            }
         }
     };
 
@@ -113,8 +131,13 @@ public final class MainActivity extends ComponentActivity {
     protected void onStart() {
         super.onStart();
         IntentFilter filter = new IntentFilter(TrackerService.UPDATE);
+        filter.addAction(TrackerService.LIVE_UPDATE);
         ContextCompat.registerReceiver(this, statusChanges, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         render(true);
+        uiHandler.post(liveTick);
+        if (page == 0 && selectedRide == null) {
+            findMapLocation(false);
+        }
     }
 
     @Override
@@ -131,6 +154,11 @@ public final class MainActivity extends ComponentActivity {
     @Override
     protected void onStop() {
         unregisterReceiver(statusChanges);
+        uiHandler.removeCallbacks(liveTick);
+        if (mapRequest != null) {
+            mapRequest.cancel();
+            mapRequest = null;
+        }
         super.onStop();
     }
 
@@ -200,10 +228,11 @@ public final class MainActivity extends ComponentActivity {
             ViewCompat.setAccessibilityHeading(heading, true);
             header.addView(heading, RideUi.weight());
             if (page != 0 && TrackerService.state() != Tracker.State.DISARMED) {
-                header.addView(ui.button(stateLabel(TrackerService.state()), colours.violet(), colours.violetInk(),
+                header.addView(ui.button("Tracker", colours.violet(), colours.violetInk(),
                         null, () -> {
                             page = 0;
                             render(false);
+                            findMapLocation(false);
                         }));
             }
         }
@@ -223,6 +252,9 @@ public final class MainActivity extends ComponentActivity {
                     foreground, null, () -> {
                         page = tab;
                         render(false);
+                        if (tab == 0) {
+                            findMapLocation(false);
+                        }
                     });
             var icon = getDrawable(icons[i]).mutate();
             icon.setTint(foreground);
@@ -247,82 +279,65 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private View trackingPanel() {
-        Tracker.State state = TrackerService.state();
-        FrameLayout panel = new FrameLayout(this);
-        panel.setBackground(new LayerDrawable(new Drawable[]{
-                ui.shape(RideColors.TRACK, 22, null),
-                new TrackBackdrop()
-        }));
-        panel.setClipToOutline(true);
-
-        LinearLayout controls = ui.column();
-        controls.setPadding(ui.dp(19), ui.dp(19), ui.dp(19), ui.dp(19));
-        LinearLayout status = ui.row();
-        View lamp = new View(this);
-        int indicator = state == Tracker.State.DISARMED ? 0xffbca1ed : RideColors.SIGNAL;
-        lamp.setBackground(ui.shape(indicator, 5, null));
-        LinearLayout.LayoutParams lampSize = new LinearLayout.LayoutParams(ui.dp(8), ui.dp(8));
-        lampSize.rightMargin = ui.dp(8);
-        status.addView(lamp, lampSize);
-        TextView badge = ui.text(stateLabel(state).toUpperCase(Locale.ROOT), 12, true, indicator);
-        badge.setLetterSpacing(.09f);
-        status.addView(badge);
-        controls.addView(status);
-
-        String headline = switch (state) {
-            case DISARMED -> "Ready to\nroll?";
-            case READY -> "All set.";
-            case RIDING -> "On the\nmove.";
-            case PAUSED -> "Taking\na break.";
-        };
-        TextView display = ui.title(headline, 46, RideColors.ON_TRACK);
-        display.setLetterSpacing(-.06f);
-        display.setLineSpacing(0, .88f);
-        LinearLayout.LayoutParams displaySize = new LinearLayout.LayoutParams(-1, -2);
-        displaySize.topMargin = ui.dp(13);
-        displaySize.bottomMargin = ui.dp(8);
-        controls.addView(display, displaySize);
-        String detail = TrackerService.detail();
-        if (detail == null) {
-            detail = switch (state) {
-                case DISARMED -> "Arm the tracker before you head out.";
-                case READY -> "Recording starts when you cycle.";
-                case RIDING -> "Recording your route.";
-                case PAUSED -> "Move to resume, or stop at a saved place to finish.";
-            };
+    private LiveTrackerPanel trackingPanel() {
+        if (livePanel == null) {
+            livePanel = new LiveTrackerPanel(this, ui, preferences.getBoolean("maps", true), action -> {
+                if (TrackerService.ARM.equals(action) || TrackerService.START.equals(action)) {
+                    arm(action);
+                } else {
+                    send(action);
+                }
+            }, () -> findMapLocation(true));
         }
-        controls.addView(ui.text(detail, 14, false, RideColors.ON_TRACK));
-        LinearLayout actions = ui.row();
-        LinearLayout.LayoutParams actionSize = new LinearLayout.LayoutParams(-1, -2);
-        actionSize.topMargin = ui.dp(16);
-        controls.addView(actions, actionSize);
-        switch (state) {
-            case DISARMED -> trackButtons(actions, "Arm tracker", () -> arm(TrackerService.ARM),
-                    "Start ride", () -> arm(TrackerService.START));
-            case READY -> trackButtons(actions, "Start ride", () -> arm(TrackerService.START),
-                    "Disarm", () -> send(TrackerService.DISARM));
-            case RIDING, PAUSED -> trackButtons(actions, "Finish ride", () -> send(TrackerService.FINISH),
-                    "Finish & disarm", () -> send(TrackerService.DISARM));
+        if (livePanel.getParent() instanceof android.view.ViewGroup parent) {
+            parent.removeView(livePanel);
         }
-        panel.addView(controls, new FrameLayout.LayoutParams(-1, -2));
-        return panel;
+        long now = SystemClock.elapsedRealtime();
+        livePanel.showArea(roughLocation);
+        livePanel.update(TrackerService.live(now), now);
+        return livePanel;
     }
 
-    private void trackButtons(LinearLayout row, String primary, Runnable first, String secondary, Runnable second) {
-        row.addView(ui.button(primary, RideColors.SIGNAL, 0xff24281a, null, first));
-        LinearLayout.LayoutParams secondSize = new LinearLayout.LayoutParams(-2, -2);
-        secondSize.leftMargin = ui.dp(8);
-        row.addView(ui.button(secondary, RideColors.TRACK, RideColors.ON_TRACK, 0xffa99ab9, second), secondSize);
+    private void updateLivePanel() {
+        if (livePanel != null && page == 0 && selectedRide == null) {
+            long now = SystemClock.elapsedRealtime();
+            livePanel.update(TrackerService.live(now), now);
+        }
     }
 
-    private static String stateLabel(Tracker.State state) {
-        return switch (state) {
-            case DISARMED -> "Tracking off";
-            case READY -> "Ready";
-            case RIDING -> "Riding";
-            case PAUSED -> "Paused";
-        };
+    private void findMapLocation(boolean prompt) {
+        if (!MapLocation.permitted(this)) {
+            if (prompt) {
+                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION}, MAP_PERMISSION);
+            }
+            return;
+        }
+        Location cached = MapLocation.cached(this);
+        if (cached != null) {
+            showMapLocation(cached);
+        }
+        if (mapRequest != null) {
+            if (!prompt) {
+                return;
+            }
+            mapRequest.cancel();
+        }
+        CancellationSignal request = new CancellationSignal();
+        mapRequest = request;
+        MapLocation.request(this, request, fix -> {
+            if (mapRequest == request && !request.isCanceled()) {
+                showMapLocation(fix);
+            }
+        });
+    }
+
+    private void showMapLocation(Location location) {
+        roughLocation = location;
+        if (livePanel != null) {
+            livePanel.showArea(location);
+            updateLivePanel();
+        }
     }
 
     private void historyPage() {
@@ -450,9 +465,9 @@ public final class MainActivity extends ComponentActivity {
         add(modes, 20);
         add(ui.hairline(), 16);
         add(section("Tracking"), 5);
-        toggle("Arm when opening Bike There", "openToArm", true);
+        toggle("Enable auto-start when opening Bike There", "openToArm", true);
         int timeout = preferences.getInt(TrackerService.SET_TIMEOUT, TrackerService.DEFAULT_TIMEOUT);
-        content.addView(listEntry("Ready timeout", getString(R.string.timeout_minutes, timeout), () -> editTimeout(timeout)));
+        content.addView(listEntry("Auto-start timeout", getString(R.string.timeout_minutes, timeout), () -> editTimeout(timeout)));
         add(ui.hairline(), 16);
         add(section("Maps & weather"), 5);
         toggle("OpenStreetMap tiles", "maps", true);
@@ -502,7 +517,12 @@ public final class MainActivity extends ComponentActivity {
         control.setTextColor(colours.ink());
         control.setText(label);
         control.setChecked(preferences.getBoolean(key, initial));
-        control.setOnCheckedChangeListener((button, checked) -> preferences.edit().putBoolean(key, checked).apply());
+        control.setOnCheckedChangeListener((button, checked) -> {
+            preferences.edit().putBoolean(key, checked).apply();
+            if ("maps".equals(key)) {
+                livePanel = null;
+            }
+        });
         add(control, 3);
     }
 
@@ -680,6 +700,7 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         pendingArm = null;
+        findMapLocation(false);
         startForegroundService(new Intent(this, TrackerService.class).setAction(action));
     }
 
@@ -701,6 +722,10 @@ public final class MainActivity extends ComponentActivity {
     @Override
     public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
+        if (request == MAP_PERMISSION) {
+            findMapLocation(false);
+            return;
+        }
         if (pendingArm == null) {
             return;
         }
@@ -807,7 +832,7 @@ public final class MainActivity extends ComponentActivity {
         return DATE.format(Instant.ofEpochMilli(ride.start()).atZone(ZoneId.of(ride.zone())));
     }
 
-    private static String duration(long millis) {
+    static String duration(long millis) {
         long seconds = millis / 1000;
         if (seconds >= 3600) {
             return String.format(Locale.getDefault(), "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60,

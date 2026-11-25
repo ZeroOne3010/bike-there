@@ -12,14 +12,20 @@ final class Tracker {
     record Place(long id, String name, double lat, double lon, int radius) {}
     record Fix(double lat, double lon, long time, long elapsed, float accuracy, float speed,
                double elevationMetres) {}
+    record LiveStats(long elapsedMillis, long movingMillis, double distanceMetres, double topSpeedMps) {
+        static final LiveStats EMPTY = new LiveStats(0, 0, 0, Double.NaN);
+        double averageSpeedMps() {
+            return movingMillis > 0 ? distanceMetres * 1000 / movingMillis : Double.NaN;
+        }
+    }
     private record Candidate(Fix fix, boolean moving) {}
 
     private static final long BUFFER_MS = 25_000;
     private static final long START_CONFIRM_MS = 4_000;
     private static final long PAUSE_MS = 12_000;
     private static final long ARRIVAL_MS = 30_000;
-    private static final long MAX_GAP_MS = 15_000;
-    private static final float MAX_ACCURACY = 35;
+    static final long MAX_GAP_MS = 15_000;
+    static final float MAX_ACCURACY = 35;
     private static final float START_SPEED = 2.5f;
     private static final float CONTINUE_SPEED = 1.6f;
 
@@ -29,6 +35,10 @@ final class Tracker {
     private Fix last;
     private long idleSince;
     private long firstElapsed;
+    private long movingMillis;
+    private double distance;
+    private double topSpeed = Double.NaN;
+    private List<Ride.Point> liveRoute = java.util.Collections.emptyList();
     private long stoppedSince = -1;
     private long arrivalSince;
     private long startMoving = -1;
@@ -54,6 +64,22 @@ final class Tracker {
 
     boolean idleExpired(long elapsed, long limit) {
         return state == State.READY && elapsed - idleSince >= limit;
+    }
+
+    boolean manualPending() {
+        return state == State.READY && manualStart;
+    }
+
+    LiveStats liveStats(long elapsed) {
+        return points.isEmpty() ? LiveStats.EMPTY
+                : new LiveStats(Math.max(0, elapsed - firstElapsed), movingMillis, distance, topSpeed);
+    }
+
+    List<Ride.Point> liveRoute() {
+        if (liveRoute == null) {
+            liveRoute = java.util.Collections.unmodifiableList(new ArrayList<>(points));
+        }
+        return liveRoute;
     }
 
     void startManually() {
@@ -201,7 +227,16 @@ final class Tracker {
         if (points.isEmpty()) {
             firstElapsed = fix.elapsed();
         }
+        if (!points.isEmpty() && !segmentStart) {
+            Ride.Point previous = points.get(points.size() - 1);
+            movingMillis += time - previous.time();
+            distance += Ride.meters(previous.lat(), previous.lon(), fix.lat(), fix.lon());
+        }
+        if (Float.isFinite(fix.speed()) && fix.speed() >= 0) {
+            topSpeed = Double.isFinite(topSpeed) ? Math.max(topSpeed, fix.speed()) : fix.speed();
+        }
         points.add(new Ride.Point(fix.lat(), fix.lon(), time, segmentStart, fix.elevationMetres(), fix.speed()));
+        liveRoute = null;
     }
 
     private Ride completed(Place destination) {
@@ -236,6 +271,10 @@ final class Tracker {
         clearStop();
         buffer.clear();
         points.clear();
+        liveRoute = java.util.Collections.emptyList();
+        movingMillis = 0;
+        distance = 0;
+        topSpeed = Double.NaN;
         last = null;
         origin = null;
         rideId = null;

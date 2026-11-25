@@ -9,6 +9,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 public final class TrackerService extends Service implements LocationListener {
     static final String UPDATE = "dev.zeroone.bikethere.STATUS";
+    static final String LIVE_UPDATE = "dev.zeroone.bikethere.LIVE_STATUS";
     static final String ARM = "arm";
     static final String START = "start";
     static final String FINISH = "finish";
@@ -34,9 +36,13 @@ public final class TrackerService extends Service implements LocationListener {
     private static final int NOTIFICATION_ID = 12;
     private static final String CHANNEL = "ride-tracking";
 
-    private static Tracker.State visibleState = Tracker.State.DISARMED;
-    private static Location lastLocation;
-    private static String statusDetail;
+    record Live(Tracker.State state, boolean manualPending, GpsStatus gps, Location fix,
+                Tracker.LiveStats stats, List<Ride.Point> route) {
+        private static final Live OFF = new Live(Tracker.State.DISARMED, false, GpsStatus.OFF, null,
+                Tracker.LiveStats.EMPTY, java.util.Collections.emptyList());
+    }
+
+    private static TrackerService active;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Tracker tracker = new Tracker();
@@ -46,17 +52,33 @@ public final class TrackerService extends Service implements LocationListener {
     private boolean listening;
     private int timeout;
     private long nextCheckpoint;
+    private boolean gpsEnabled;
+    private boolean gnssRegistered;
+    private long lastFixAt = -1;
+    private Location lastLocation;
+    private int satellitesSeen = -1;
+    private int satellitesUsed = -1;
+    private String notificationLabel;
 
     static Tracker.State state() {
-        return visibleState;
+        return active == null ? Tracker.State.DISARMED : active.tracker.state();
     }
 
     static Location fix() {
-        return lastLocation == null ? null : new Location(lastLocation);
+        return active == null || active.lastLocation == null ? null : new Location(active.lastLocation);
     }
 
-    static String detail() {
-        return statusDetail;
+    static Live live(long now) {
+        if (active == null) {
+            return Live.OFF;
+        }
+        Tracker tracker = active.tracker;
+        return new Live(tracker.state(), tracker.manualPending(), active.gpsStatus(),
+                active.lastLocation, tracker.liveStats(now), tracker.liveRoute());
+    }
+
+    private GpsStatus gpsStatus() {
+        return new GpsStatus(gpsEnabled, lastFixAt, satellitesSeen, satellitesUsed);
     }
 
     @Override
@@ -93,7 +115,11 @@ public final class TrackerService extends Service implements LocationListener {
             if (START.equals(action)) {
                 tracker.startManually();
             }
-            beginListening();
+            if (listening) {
+                updateSignal();
+            } else {
+                beginListening();
+            }
         } else if (FINISH.equals(action) && listening) {
             save(tracker.finish(SystemClock.elapsedRealtime(), places));
             publish();
@@ -109,22 +135,43 @@ public final class TrackerService extends Service implements LocationListener {
     }
 
     private void beginListening() {
-        if (listening) {
-            return;
-        }
-        visibleState = tracker.state();
+        active = this;
+        gpsEnabled = location.isProviderEnabled(LocationManager.GPS_PROVIDER);
         startForeground(NOTIFICATION_ID, notification());
         try {
-            statusDetail = location.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                    ? "Waiting for GPS" : "Turn on the phone’s location to record";
             location.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2_000L, 0f, this, Looper.getMainLooper());
             listening = true;
-            handler.post(idleCheck);
-            publish();
         } catch (IllegalArgumentException | SecurityException e) {
             shutdown();
+            return;
         }
+        try {
+            gnssRegistered = location.registerGnssStatusCallback(satellites, handler);
+        } catch (IllegalArgumentException | SecurityException ignored) {
+            // Some devices do not report satellite status. GPS recording can still work.
+        }
+        handler.post(idleCheck);
+        publish();
     }
+
+    private final GnssStatus.Callback satellites = new GnssStatus.Callback() {
+        @Override public void onSatelliteStatusChanged(GnssStatus status) {
+            if (!listening || !gpsEnabled) {
+                return;
+            }
+            int used = 0;
+            for (int i = 0; i < status.getSatelliteCount(); i++) {
+                if (status.usedInFix(i)) {
+                    used++;
+                }
+            }
+            if (satellitesSeen != status.getSatelliteCount() || satellitesUsed != used) {
+                satellitesSeen = status.getSatelliteCount();
+                satellitesUsed = used;
+                sendLiveUpdate();
+            }
+        }
+    };
 
     private final Runnable idleCheck = new Runnable() {
         @Override
@@ -132,7 +179,8 @@ public final class TrackerService extends Service implements LocationListener {
             if (tracker.idleExpired(SystemClock.elapsedRealtime(), TimeUnit.MINUTES.toMillis(timeout))) {
                 shutdown();
             } else {
-                handler.postDelayed(this, 5_000L);
+                updateSignal();
+                handler.postDelayed(this, 2_000L);
             }
         }
     };
@@ -144,12 +192,13 @@ public final class TrackerService extends Service implements LocationListener {
         }
         long elapsed = fix.getElapsedRealtimeNanos() / 1_000_000;
         if (SystemClock.elapsedRealtime() - elapsed > 10_000 || !fix.hasAccuracy()
-                || fix.getAccuracy() > 35) {
+                || !Float.isFinite(fix.getAccuracy()) || fix.getAccuracy() <= 0
+                || fix.getAccuracy() > Tracker.MAX_ACCURACY || elapsed <= lastFixAt) {
             return;
         }
-        boolean firstFix = lastLocation == null;
+        Tracker.State before = tracker.state();
         lastLocation = new Location(fix);
-        statusDetail = null;
+        lastFixAt = elapsed;
         float speed = fix.hasSpeed() && (!fix.hasSpeedAccuracy() || fix.getSpeedAccuracyMetersPerSecond() <= 1.5f)
                 ? fix.getSpeed() : Float.NaN;
         double elevation = fix.hasAltitude()
@@ -165,22 +214,26 @@ public final class TrackerService extends Service implements LocationListener {
                 store.saveRide(snapshot, true);
             }
         }
-        if (firstFix || visibleState != tracker.state() || completed != null) {
+        if (before != tracker.state() || completed != null) {
             publish();
+        } else {
+            updateSignal();
+            sendLiveUpdate();
         }
     }
 
     @Override
     public void onProviderDisabled(String provider) {
-        lastLocation = null;
-        statusDetail = "Turn on the phone’s location to record";
-        publish();
+        gpsEnabled = false;
+        lastFixAt = -1;
+        satellitesSeen = satellitesUsed = -1;
+        updateSignal();
     }
 
     @Override
     public void onProviderEnabled(String provider) {
-        statusDetail = "Waiting for GPS";
-        publish();
+        gpsEnabled = true;
+        updateSignal();
     }
 
     private void save(Ride ride) {
@@ -196,25 +249,42 @@ public final class TrackerService extends Service implements LocationListener {
 
     private void shutdown() {
         save(tracker.disarm());
-        visibleState = Tracker.State.DISARMED;
-        lastLocation = null;
-        statusDetail = null;
-        handler.removeCallbacks(idleCheck);
-        if (listening) {
-            location.removeUpdates(this);
-            listening = false;
-        }
+        stopUpdates();
         stopForeground(STOP_FOREGROUND_REMOVE);
         sendUpdate();
         stopSelf();
     }
 
-    private void publish() {
-        visibleState = tracker.state();
+    private void stopUpdates() {
+        handler.removeCallbacks(idleCheck);
         if (listening) {
-            getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+            location.removeUpdates(this);
+            listening = false;
         }
+        if (gnssRegistered) {
+            location.unregisterGnssStatusCallback(satellites);
+            gnssRegistered = false;
+        }
+        if (active == this) {
+            active = null;
+        }
+    }
+
+    private void publish() {
+        updateSignal();
         sendUpdate();
+    }
+
+    private void updateSignal() {
+        String label = gpsStatus().label(tracker.state(), SystemClock.elapsedRealtime(), tracker.manualPending());
+        if (listening && !label.equals(notificationLabel)) {
+            getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+            sendLiveUpdate();
+        }
+    }
+
+    private void sendLiveUpdate() {
+        sendBroadcast(new Intent(LIVE_UPDATE).setPackage(getPackageName()));
     }
 
     private void sendUpdate() {
@@ -229,16 +299,15 @@ public final class TrackerService extends Service implements LocationListener {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         PendingIntent disarm = PendingIntent.getService(this, 2,
                 new Intent(this, TrackerService.class).setAction(DISARM), PendingIntent.FLAG_IMMUTABLE);
-        boolean riding = visibleState == Tracker.State.RIDING || visibleState == Tracker.State.PAUSED;
-        String label = switch (visibleState) {
-            case RIDING -> "Riding";
-            case PAUSED -> "Paused";
-            default -> "Ready";
-        };
+        Tracker.State state = tracker.state();
+        boolean riding = state == Tracker.State.RIDING || state == Tracker.State.PAUSED;
+        notificationLabel = gpsStatus().label(state, SystemClock.elapsedRealtime(), tracker.manualPending());
+        String description = !gpsEnabled ? "Turn on the phone’s location"
+                : riding ? "Tracking your ride"
+                : tracker.manualPending() ? "Starts at the first usable GPS fix" : "Starts when you cycle";
         Notification.Builder builder = new Notification.Builder(this, CHANNEL)
-                .setContentTitle("Bike There · " + label)
-                .setContentText(statusDetail != null ? statusDetail
-                        : riding ? "Tracking your ride" : "Waiting for you to start cycling")
+                .setContentTitle("Bike There · " + notificationLabel)
+                .setContentText(description)
                 .setSmallIcon(R.drawable.ic_tracking)
                 .setContentIntent(open)
                 .setOngoing(true)
@@ -253,14 +322,10 @@ public final class TrackerService extends Service implements LocationListener {
 
     @Override
     public void onDestroy() {
-        handler.removeCallbacks(idleCheck);
         if (listening) {
             save(tracker.disarm());
-            location.removeUpdates(this);
         }
-        visibleState = Tracker.State.DISARMED;
-        lastLocation = null;
-        statusDetail = null;
+        stopUpdates();
         store.close();
         sendUpdate();
         super.onDestroy();

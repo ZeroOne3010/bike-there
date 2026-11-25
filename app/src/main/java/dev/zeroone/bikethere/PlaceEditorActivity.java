@@ -42,6 +42,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
     private int selection;
     private long placeId;
     private CancellationSignal locating;
+    private CancellationSignal roughMapRequest;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable locationTimeout = () -> {
         cancelLocation();
@@ -192,8 +193,11 @@ public final class PlaceEditorActivity extends ComponentActivity {
         setContentView(root);
         root.requestFocus();
 
-        if (existing == null && saved == null && hasPreciseLocation()) {
-            locate(false);
+        if (existing == null && saved == null) {
+            centreRoughly();
+            if (hasPreciseLocation()) {
+                locate(false);
+            }
         }
     }
 
@@ -218,6 +222,28 @@ public final class PlaceEditorActivity extends ComponentActivity {
 
     private boolean hasPreciseLocation() {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void centreRoughly() {
+        if (!MapLocation.permitted(this)) {
+            return;
+        }
+        Location cached = MapLocation.cached(this);
+        if (cached != null) {
+            centreMap(cached);
+        }
+        int camera = map.userCameraChanges();
+        roughMapRequest = new CancellationSignal();
+        MapLocation.request(this, roughMapRequest, fix -> {
+            if (!Double.isFinite(lat) && map.userCameraChanges() == camera) {
+                centreMap(fix);
+            }
+        });
+    }
+
+    private void centreMap(Location location) {
+        map.setCamera(SlippyMap.mapX(location.getLongitude()), SlippyMap.mapY(location.getLatitude()),
+                MapLocation.cityZoom(location));
     }
 
     private void locate(boolean prompt) {
@@ -253,6 +279,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
             locating = new CancellationSignal();
             CancellationSignal request = locating;
             int currentSelection = selection;
+            int currentCamera = map.userCameraChanges();
             coordinateHint.setText(R.string.map_locating);
             handler.postDelayed(locationTimeout, 14_000);
             LocationManagerCompat.getCurrentLocation(manager, provider, request, ContextCompat.getMainExecutor(this), fix -> {
@@ -260,12 +287,16 @@ public final class PlaceEditorActivity extends ComponentActivity {
                     return;
                 }
                 cancelLocation();
-                if (fix != null && selection == currentSelection) {
+                boolean unchanged = selection == currentSelection && map.userCameraChanges() == currentCamera;
+                if (nearbyFix(fix) && unchanged) {
                     map.select(fix.getLatitude(), fix.getLongitude(), true);
                     map.setRadius(radius);
+                } else if (fix != null && unchanged) {
+                    centreMap(fix);
+                    coordinateHint.setText(R.string.map_approximate);
                 } else {
                     updatePositionHint();
-                    if (fix == null && selection == currentSelection) {
+                    if (fix == null && unchanged) {
                         toast("Couldn’t get a location. Tap the map to set the centre.");
                     }
                 }
@@ -324,6 +355,10 @@ public final class PlaceEditorActivity extends ComponentActivity {
 
     @Override
     protected void onStop() {
+        if (roughMapRequest != null) {
+            roughMapRequest.cancel();
+            roughMapRequest = null;
+        }
         cancelLocation();
         updatePositionHint();
         super.onStop();
