@@ -29,7 +29,10 @@ public class TrackerTest {
         fix(124, 60.00012, 24, 4);
         fix(126, 60.00023, 24, 4);
         assertEquals(Tracker.State.RIDING, tracker.state());
-        assertEquals(TIME + 122_000, tracker.snapshot().started());
+        Ride snapshot = tracker.snapshot();
+        assertEquals(TIME + 122_000, snapshot.started());
+        assertEquals(30, snapshot.points().get(0).elevationMetres(), 0.001);
+        assertEquals(3, snapshot.points().get(0).speedMetresPerSecond(), 0.001);
     }
 
     @Test
@@ -102,6 +105,6 @@ public class TrackerTest {
 
     private Ride fix(int seconds, double lat, double lon, float speed) {
         return tracker.accept(new Tracker.Fix(lat, lon, TIME + seconds * 1000L,
-                seconds * 1000L, 4, speed), PLACES, HELSINKI);
+                seconds * 1000L, 4, speed, 30), PLACES, HELSINKI);
     }
 }

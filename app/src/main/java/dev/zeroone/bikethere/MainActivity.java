@@ -11,20 +11,15 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
-import android.location.Location;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.provider.Settings;
-import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.view.WindowInsets;
 import android.widget.Button;
-import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -35,6 +30,7 @@ import android.widget.Toast;
 import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
 
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -48,11 +44,6 @@ import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends ComponentActivity {
-    static final int PAPER = 0xfff4f5ef;
-    static final int INK = 0xff192820;
-    static final int MUTED = 0xff455a4e;
-    static final int LEAF = 0xff21644e;
-    static final int TINT = 0xffdeece1;
     private static final int LOCATION_PERMISSION = 10;
     private static final int NOTIFICATION_PERMISSION = 11;
     private static final int EXPORT = 12;
@@ -61,7 +52,9 @@ public final class MainActivity extends ComponentActivity {
     private RideStore store;
     private SharedPreferences preferences;
     private LinearLayout content;
-    private View status;
+    private RideUi ui;
+    private RideColors colours;
+    private long playbackOffset;
     private ScrollView scroll;
     private int page;
     private int historyLimit = 40;
@@ -90,7 +83,10 @@ public final class MainActivity extends ComponentActivity {
 
     @Override
     public void onCreate(Bundle saved) {
+        setTheme(RideUi.isDark(this) ? R.style.AppThemeDark : R.style.AppTheme);
         super.onCreate(saved);
+        ui = new RideUi(this);
+        colours = ui.colours;
         getOnBackPressedDispatcher().addCallback(this, back);
         store = new RideStore(this);
         preferences = TrackerService.preferences(this);
@@ -103,6 +99,7 @@ public final class MainActivity extends ComponentActivity {
             selectedRide = saved.getString("ride");
             exportingRide = saved.getString("export");
             pendingArm = saved.getString("arm");
+            playbackOffset = saved.getLong("playback");
         } else {
             openToArm = !getIntent().getBooleanExtra("notification", false)
                     && preferences.getBoolean("openToArm", true);
@@ -149,56 +146,27 @@ public final class MainActivity extends ComponentActivity {
         out.putString("ride", selectedRide);
         out.putString("export", exportingRide);
         out.putString("arm", pendingArm);
+        out.putLong("playback", playbackOffset);
     }
 
     private void render(boolean keepScroll) {
         back.setEnabled(selectedRide != null || page != 0);
         int scrollPosition = keepScroll && scroll != null ? scroll.getScrollY() : 0;
         if (keepScroll && selectedRide != null && content != null) {
-            refreshTrackerStatus();
-            TextView weatherLabel = content.findViewWithTag("rideWeather");
-            if (weatherLabel != null) {
-                for (RideStore.Summary entry : store.history()) {
-                    if (entry.id().equals(selectedRide) && entry.weather() != null) {
-                        weatherLabel.setText(entry.weather().label() + " · Open-Meteo");
-                        break;
-                    }
-                }
-            }
+            refreshWeatherLabel();
             return;
         }
-        LinearLayout root = column();
-        root.setBackgroundColor(PAPER);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            if (Build.VERSION.SDK_INT >= 30) {
-                android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars()
-                        | WindowInsets.Type.displayCutout());
-                root.setPadding(bars.left, bars.top, bars.right, bars.bottom);
-                return WindowInsets.CONSUMED;
-            }
-            return insets;
-        });
-        if (Build.VERSION.SDK_INT >= 30) {
-            getWindow().setDecorFitsSystemWindows(false);
-        }
-        LinearLayout header = row();
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(20), dp(5), dp(20), dp(5));
-        TextView heading = text("Bike There", 27, true, INK);
-        heading.setLetterSpacing(-0.045f);
-        header.addView(heading, weight());
-        if (selectedRide != null) {
-            header.addView(button("History", false, this::closeRide));
-        }
-        root.addView(header);
+        LinearLayout root = ui.column();
+        root.setBackgroundColor(colours.paper());
+        ui.edgeToEdge(this, root);
+        root.addView(header());
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        content = column();
-        content.setPadding(dp(20), dp(8), dp(20), dp(20));
+        content = ui.column();
+        content.setPadding(ui.dp(19), ui.dp(12), ui.dp(19), ui.dp(26));
         scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        status = null;
-        refreshTrackerStatus();
+
         if (selectedRide != null) {
             rideDetails();
         } else {
@@ -207,74 +175,154 @@ public final class MainActivity extends ComponentActivity {
                 case 2 -> settingsPage();
                 default -> historyPage();
             }
-            LinearLayout navigation = row();
-            navigation.setPadding(dp(16), dp(4), dp(16), dp(8));
-            String[] tabs = {"Rides", "Places", "Settings"};
-            for (int i = 0; i < tabs.length; i++) {
-                int tab = i;
-                Button item = button(tabs[i], page == tab, () -> {
-                    page = tab;
-                    render(false);
-                });
-                item.setSelected(page == tab);
-                navigation.addView(item, weight());
-            }
-            root.addView(navigation);
+            root.addView(ui.hairline());
+            root.addView(navigation());
         }
         setContentView(root);
-        scroll.post(() -> scroll.scrollTo(0, scrollPosition));
+        ScrollView newScroll = scroll;
+        newScroll.post(() -> newScroll.scrollTo(0, scrollPosition));
     }
 
-    private void refreshTrackerStatus() {
-        if (status != null) {
-            content.removeView(status);
+    private LinearLayout header() {
+        LinearLayout header = ui.row();
+        header.setPadding(ui.dp(19), ui.dp(5), ui.dp(18), ui.dp(5));
+        if (selectedRide != null) {
+            header.addView(ui.secondary("← Rides", this::closeRide));
+        } else {
+            String title = switch (page) {
+                case 1 -> "Places";
+                case 2 -> "Settings";
+                default -> "BIKE THERE";
+            };
+            TextView heading = ui.title(title, page == 0 ? 40 : 35, colours.ink());
+            ViewCompat.setAccessibilityHeading(heading, true);
+            header.addView(heading, RideUi.weight());
+            if (page != 0 && TrackerService.state() != Tracker.State.DISARMED) {
+                header.addView(ui.button(stateLabel(TrackerService.state()), colours.violet(), colours.violetInk(),
+                        null, () -> {
+                            page = 0;
+                            render(false);
+                        }));
+            }
         }
+        return header;
+    }
+
+    private LinearLayout navigation() {
+        LinearLayout bar = ui.row();
+        bar.setPadding(ui.dp(16), ui.dp(7), ui.dp(16), ui.dp(7));
+        String[] tabs = {"Rides", "Places", "Settings"};
+        int[] icons = {R.drawable.tab_rides, R.drawable.tab_places, R.drawable.tab_settings};
+        for (int i = 0; i < tabs.length; i++) {
+            int tab = i;
+            boolean current = tab == page;
+            int foreground = current ? colours.violetInk() : colours.muted();
+            Button item = ui.button(tabs[i], current ? colours.violet() : Color.TRANSPARENT,
+                    foreground, null, () -> {
+                        page = tab;
+                        render(false);
+                    });
+            var icon = getDrawable(icons[i]).mutate();
+            icon.setTint(foreground);
+            icon.setBounds(0, 0, ui.dp(20), ui.dp(20));
+            item.setCompoundDrawables(null, icon, null, null);
+            item.setCompoundDrawablePadding(ui.dp(3));
+            item.setTextSize(12);
+            item.setSelected(current);
+            LinearLayout.LayoutParams size = RideUi.weight();
+            size.leftMargin = ui.dp(3);
+            size.rightMargin = ui.dp(3);
+            bar.addView(item, size);
+        }
+        return bar;
+    }
+
+    private void refreshWeatherLabel() {
+        TextView label = content.findViewWithTag("rideWeather");
+        RideStore.Summary ride = entry(selectedRide);
+        if (label != null && ride != null && ride.weather() != null) {
+            label.setText(getString(R.string.ride_weather, ride.weather().label()));
+        }
+    }
+
+    private View trackingPanel() {
         Tracker.State state = TrackerService.state();
-        LinearLayout card = card(state == Tracker.State.DISARMED ? Color.WHITE : TINT);
-        LinearLayout top = row();
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        String label = switch (state) {
+        FrameLayout panel = new FrameLayout(this);
+        panel.setBackground(ui.shape(RideColors.TRACK, 22, null));
+        panel.setClipToOutline(true);
+        panel.addView(new TrackBackdrop(this), new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout controls = ui.column();
+        controls.setPadding(ui.dp(19), ui.dp(19), ui.dp(19), ui.dp(19));
+        LinearLayout status = ui.row();
+        View lamp = new View(this);
+        int indicator = state == Tracker.State.DISARMED ? 0xffbca1ed : RideColors.SIGNAL;
+        lamp.setBackground(ui.shape(indicator, 5, null));
+        LinearLayout.LayoutParams lampSize = new LinearLayout.LayoutParams(ui.dp(8), ui.dp(8));
+        lampSize.rightMargin = ui.dp(8);
+        status.addView(lamp, lampSize);
+        TextView badge = ui.text(stateLabel(state).toUpperCase(Locale.ROOT), 12, true, indicator);
+        badge.setLetterSpacing(.09f);
+        status.addView(badge);
+        controls.addView(status);
+
+        String headline = switch (state) {
+            case DISARMED -> "Ready to\nroll?";
+            case READY -> "All set.";
+            case RIDING -> "On the\nmove.";
+            case PAUSED -> "Taking\na break.";
+        };
+        TextView display = ui.title(headline, 46, RideColors.ON_TRACK);
+        display.setLetterSpacing(-.06f);
+        display.setLineSpacing(0, .88f);
+        LinearLayout.LayoutParams displaySize = new LinearLayout.LayoutParams(-1, -2);
+        displaySize.topMargin = ui.dp(13);
+        displaySize.bottomMargin = ui.dp(8);
+        controls.addView(display, displaySize);
+        String detail = TrackerService.detail();
+        if (detail == null) {
+            detail = switch (state) {
+                case DISARMED -> "Arm the tracker before you head out.";
+                case READY -> "Recording starts when you cycle.";
+                case RIDING -> "Recording your route.";
+                case PAUSED -> "Move to resume, or stop at a saved place to finish.";
+            };
+        }
+        controls.addView(ui.text(detail, 14, false, RideColors.ON_TRACK));
+        LinearLayout actions = ui.row();
+        LinearLayout.LayoutParams actionSize = new LinearLayout.LayoutParams(-1, -2);
+        actionSize.topMargin = ui.dp(16);
+        controls.addView(actions, actionSize);
+        switch (state) {
+            case DISARMED -> trackButtons(actions, "Arm tracker", () -> arm(TrackerService.ARM),
+                    "Start ride", () -> arm(TrackerService.START));
+            case READY -> trackButtons(actions, "Start ride", () -> arm(TrackerService.START),
+                    "Disarm", () -> send(TrackerService.DISARM));
+            case RIDING, PAUSED -> trackButtons(actions, "Finish ride", () -> send(TrackerService.FINISH),
+                    "Finish & disarm", () -> send(TrackerService.DISARM));
+        }
+        panel.addView(controls, new FrameLayout.LayoutParams(-1, -2));
+        return panel;
+    }
+
+    private void trackButtons(LinearLayout row, String primary, Runnable first, String secondary, Runnable second) {
+        row.addView(ui.button(primary, RideColors.SIGNAL, 0xff24281a, null, first));
+        LinearLayout.LayoutParams secondSize = new LinearLayout.LayoutParams(-2, -2);
+        secondSize.leftMargin = ui.dp(8);
+        row.addView(ui.button(secondary, RideColors.TRACK, RideColors.ON_TRACK, 0xffa99ab9, second), secondSize);
+    }
+
+    private static String stateLabel(Tracker.State state) {
+        return switch (state) {
             case DISARMED -> "Tracking off";
             case READY -> "Ready";
             case RIDING -> "Riding";
             case PAUSED -> "Paused";
         };
-        top.addView(text(label, 20, true, INK), weight());
-        top.addView(text(state == Tracker.State.DISARMED ? "○" : "●", 22, true, LEAF));
-        card.addView(top);
-        String detail = switch (state) {
-            case DISARMED -> "Arm tracking before you set off.";
-            case READY -> "Waiting for you to start cycling.";
-            case RIDING -> "Recording your route.";
-            case PAUSED -> "Waiting for you to move or confirm an arrival.";
-        };
-        if (TrackerService.detail() != null) {
-            detail = TrackerService.detail();
-        }
-        card.addView(text(detail, 14, false, MUTED));
-        LinearLayout actions = row();
-        switch (state) {
-            case DISARMED -> {
-                actions.addView(button("Arm", true, () -> arm(TrackerService.ARM)));
-                actions.addView(button("Start ride", false, () -> arm(TrackerService.START)));
-            }
-            case READY -> {
-                actions.addView(button("Start ride", true, () -> arm(TrackerService.START)));
-                actions.addView(button("Disarm", false, () -> send(TrackerService.DISARM)));
-            }
-            case RIDING, PAUSED -> {
-                actions.addView(button("Finish ride", true, () -> send(TrackerService.FINISH)));
-                actions.addView(button("Finish & disarm", false, () -> send(TrackerService.DISARM)));
-            }
-        }
-        card.addView(actions);
-        LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2);
-        size.bottomMargin = dp(16);
-        content.addView(card, 0, size);
-        status = card;
     }
 
     private void historyPage() {
+        add(trackingPanel(), 20);
         List<RideStore.Summary> history = store.history();
         YearMonth month = YearMonth.now();
         Year year = Year.now();
@@ -289,142 +337,144 @@ public final class MainActivity extends ComponentActivity {
                 yearMeters += ride.distance();
             }
         }
-        LinearLayout totals = row();
-        LinearLayout monthCard = card(Color.WHITE);
-        monthCard.addView(text("THIS MONTH", 12, true, MUTED));
-        monthCard.addView(text(km(monthMeters), 24, true, LEAF));
-        LinearLayout yearCard = card(Color.WHITE);
-        yearCard.addView(text("THIS YEAR", 12, true, MUTED));
-        yearCard.addView(text(km(yearMeters), 24, true, LEAF));
-        LinearLayout.LayoutParams left = weight();
-        left.rightMargin = dp(8);
-        totals.addView(monthCard, left);
-        totals.addView(yearCard, weight());
-        add(totals);
-        add(text("Ride history", 22, true, INK));
+        LinearLayout totals = ui.row();
+        totals.setBaselineAligned(false);
+        totals.addView(distanceTotal("THIS MONTH", monthMeters), RideUi.weight());
+        View divider = new View(this);
+        divider.setBackgroundColor(colours.line());
+        LinearLayout.LayoutParams dividerSize = new LinearLayout.LayoutParams(ui.dp(1), ui.dp(55));
+        dividerSize.setMargins(ui.dp(10), 0, ui.dp(15), 0);
+        totals.addView(divider, dividerSize);
+        totals.addView(distanceTotal("THIS YEAR", yearMeters), RideUi.weight());
+        add(totals, 18);
+        add(ui.hairline(), 17);
+        add(section("Ride history"), 9);
         if (history.isEmpty()) {
-            add(text("Finished rides will appear here.", 15, false, MUTED));
+            add(ui.text("No rides yet", 15, false, colours.muted()), 12);
         }
         for (RideStore.Summary ride : history.subList(0, Math.min(historyLimit, history.size()))) {
-            LinearLayout entry = card(Color.WHITE);
-            entry.addView(text(ride.title(), 17, true, INK));
-            entry.addView(text(date(ride) + "  ·  " + km(ride.distance()), 14, false, MUTED));
+            String details = date(ride) + "  ·  " + km(ride.distance());
             if (ride.weather() != null) {
-                entry.addView(text(ride.weather().label(), 14, false, MUTED));
+                details += "\n" + ride.weather().label();
             }
-            entry.setOnClickListener(view -> {
+            content.addView(listEntry(ride.title(), details, () -> {
                 selectedRide = ride.id();
+                playbackOffset = 0;
                 render(false);
-            });
-            entry.setFocusable(true);
-            add(entry);
+            }));
+            content.addView(ui.hairline());
         }
         if (history.size() > historyLimit) {
-            add(button("Show older rides", false, () -> {
+            add(ui.secondary("Show older rides", () -> {
                 historyLimit += 40;
                 render(true);
-            }));
+            }), 10);
         }
+    }
+
+    private View distanceTotal(String label, double metres) {
+        LinearLayout column = ui.column();
+        TextView caption = ui.text(label, 11, true, colours.muted());
+        caption.setLetterSpacing(.1f);
+        column.addView(caption);
+        LinearLayout amount = ui.row();
+        amount.setGravity(Gravity.BOTTOM);
+        TextView value = ui.title(String.format(Locale.getDefault(), "%.1f", metres / 1000), 36, colours.ink());
+        value.setMaxLines(1);
+        value.setAutoSizeTextTypeUniformWithConfiguration(18, 36, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        amount.addView(value, new LinearLayout.LayoutParams(-2, ui.dp(42)));
+        TextView units = ui.text("km", 14, true, colours.muted());
+        units.setPadding(ui.dp(4), 0, 0, ui.dp(4));
+        amount.addView(units);
+        column.addView(amount);
+        return column;
     }
 
     private void placesPage() {
-        add(text("Saved places", 22, true, INK));
-        add(text("A sustained stop within a saved place ends the current ride.", 15, false, MUTED));
-        add(button("Add a place", true, () -> placeEditor(null)));
-        for (Tracker.Place place : store.places()) {
-            LinearLayout entry = card(Color.WHITE);
-            entry.addView(text(place.name(), 17, true, INK));
-            entry.addView(text(place.radius() + " m radius", 14, false, MUTED));
-            entry.setOnClickListener(view -> placeEditor(place));
-            entry.setFocusable(true);
-            add(entry);
+        add(ui.text("Stop inside a saved circle to finish and name a ride.", 15, false, colours.muted()), 13);
+        add(ui.primary("+  Add a place", () -> openPlaceEditor(0)), 19);
+        List<Tracker.Place> places = store.places();
+        if (places.isEmpty()) {
+            add(ui.text("No saved places", 15, false, colours.muted()), 12);
+        }
+        for (Tracker.Place place : places) {
+            content.addView(listEntry(place.name(), getString(R.string.place_radius, place.radius()),
+                    () -> openPlaceEditor(place.id())));
+            content.addView(ui.hairline());
         }
     }
 
-    private void placeEditor(Tracker.Place place) {
-        LinearLayout form = column();
-        form.setPadding(dp(22), dp(4), dp(22), 0);
-        EditText name = field(form, "Name (e.g. Daycare)", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        int coordinate = InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_SIGNED
-                | InputType.TYPE_NUMBER_FLAG_DECIMAL;
-        EditText lat = field(form, "Latitude", coordinate);
-        EditText lon = field(form, "Longitude", coordinate);
-        EditText radius = field(form, "Radius in metres", InputType.TYPE_CLASS_NUMBER);
-        if (place != null) {
-            name.setText(place.name());
-        }
-        radius.setText(Integer.toString(place == null ? 60 : place.radius()));
-        if (place != null) {
-            lat.setText(Double.toString(place.lat()));
-            lon.setText(Double.toString(place.lon()));
-        }
-        Runnable usePosition = () -> {
-            Location fix = TrackerService.fix();
-            if (fix == null || SystemClock.elapsedRealtime() - fix.getElapsedRealtimeNanos() / 1_000_000 > 30_000) {
-                toast("Arm tracking and wait for GPS, or enter coordinates.");
-            } else {
-                lat.setText(String.format(Locale.US, "%.6f", fix.getLatitude()));
-                lon.setText(String.format(Locale.US, "%.6f", fix.getLongitude()));
-            }
-        };
-        form.addView(button("Use current location", false, usePosition));
-        AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle(place == null ? "Add saved place" : "Edit " + place.name())
-                .setView(form).setNegativeButton("Cancel", null).setPositiveButton("Save", null);
-        if (place != null) {
-            builder.setNeutralButton("Delete", (dialog, which) -> new AlertDialog.Builder(this)
-                    .setMessage("Delete " + place.name() + " from saved places?")
-                    .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Delete", (confirm, option) -> {
-                        store.deletePlace(place.id());
-                        placesChanged();
-                    }).show());
-        }
-        AlertDialog dialog = builder.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            String title = name.getText().toString().trim();
-            if (title.isEmpty()) {
-                name.setError("Enter a name");
-                return;
-            }
-            try {
-                double latitude = decimal(lat);
-                double longitude = decimal(lon);
-                int metres = Integer.parseInt(radius.getText().toString().trim());
-                if (!Double.isFinite(latitude) || !Double.isFinite(longitude)
-                        || Math.abs(latitude) > 90 || Math.abs(longitude) > 180
-                        || metres < 20 || metres > 500) {
-                    throw new IllegalArgumentException();
-                }
-                store.savePlace(place == null ? 0 : place.id(), title, latitude, longitude, metres);
-                placesChanged();
-                dialog.dismiss();
-            } catch (IllegalArgumentException e) {
-                toast("Enter valid coordinates and a radius between 20 and 500 m.");
-            }
-        });
+    private void openPlaceEditor(long id) {
+        startActivity(new Intent(this, PlaceEditorActivity.class).putExtra(PlaceEditorActivity.PLACE, id));
     }
 
-    private void placesChanged() {
-        if (TrackerService.state() != Tracker.State.DISARMED) {
-            send(TrackerService.PLACES);
-        }
-        render(true);
+    private View listEntry(String title, String detail, Runnable open) {
+        LinearLayout row = ui.row();
+        row.setPadding(ui.dp(4), ui.dp(13), ui.dp(5), ui.dp(13));
+        row.setMinimumHeight(ui.dp(58));
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x268d719e), null,
+                ui.shape(Color.WHITE, 10, null)));
+        LinearLayout labels = ui.column();
+        labels.addView(ui.text(title, 18, true, colours.ink()));
+        TextView subtitle = ui.text(detail, 13, false, colours.muted());
+        subtitle.setPadding(0, ui.dp(5), 0, 0);
+        labels.addView(subtitle);
+        row.addView(labels, RideUi.weight());
+        TextView arrow = ui.text("›", 28, false, colours.accent());
+        arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        row.addView(arrow);
+        row.setOnClickListener(view -> open.run());
+        row.setFocusable(true);
+        return row;
     }
 
     private void settingsPage() {
-        add(text("Tracking", 22, true, INK));
+        add(section("Appearance"), 6);
+        int current = appearanceIndex();
+        String[] labels = {"System", "Light", "Dark"};
+        LinearLayout modes = ui.row();
+        for (int i = 0; i < labels.length; i++) {
+            int mode = i;
+            Button button = current == i
+                    ? ui.button(labels[i], colours.violet(), colours.violetInk(), null, () -> {})
+                    : ui.secondary(labels[i], () -> changeAppearance(mode));
+            button.setSelected(current == i);
+            LinearLayout.LayoutParams size = RideUi.weight();
+            size.rightMargin = i < labels.length - 1 ? ui.dp(7) : 0;
+            modes.addView(button, size);
+        }
+        add(modes, 20);
+        add(ui.hairline(), 16);
+        add(section("Tracking"), 5);
         toggle("Arm when opening Bike There", "openToArm", true);
         int timeout = preferences.getInt(TrackerService.SET_TIMEOUT, TrackerService.DEFAULT_TIMEOUT);
-        add(button("Ready timeout · " + timeout + " min", false, () -> editTimeout(timeout)));
-        add(text("When Ready expires, GPS and the status notification turn off.", 14, false, MUTED));
-        add(text("Ride details", 22, true, INK));
+        content.addView(listEntry("Ready timeout", getString(R.string.timeout_minutes, timeout), () -> editTimeout(timeout)));
+        add(ui.hairline(), 16);
+        add(section("Maps & weather"), 5);
+        toggle("OpenStreetMap tiles", "maps", true);
+        add(ui.text("Ride playback and saved circles work offline.", 13, false, colours.muted()), 10);
         toggle("Weather from Open-Meteo", "weather", false);
-        add(text("Weather lookup sends the approximate start of the ride and its date to Open-Meteo.",
-                14, false, MUTED));
-        toggle("OpenStreetMap background", "maps", true);
-        add(text("Opening a ride downloads visible map tiles. Your route playback also works offline.",
-                14, false, MUTED));
+        add(ui.text("Weather lookup sends the approximate ride start and date to Open-Meteo.", 13, false, colours.muted()), 10);
+    }
+
+    private int appearanceIndex() {
+        return switch (preferences.getString(RideUi.APPEARANCE, "system")) {
+            case "light" -> 1;
+            case "dark" -> 2;
+            default -> 0;
+        };
+    }
+
+    private void changeAppearance(int mode) {
+        String[] choices = {"system", "light", "dark"};
+        preferences.edit().putString(RideUi.APPEARANCE, choices[mode]).apply();
+        recreate();
+    }
+
+    private TextView section(String label) {
+        TextView title = ui.title(label, 29, colours.ink());
+        ViewCompat.setAccessibilityHeading(title, true);
+        return title;
     }
 
     private void editTimeout(int timeout) {
@@ -444,12 +494,12 @@ public final class MainActivity extends ComponentActivity {
 
     private void toggle(String label, String key, boolean initial) {
         Switch control = new Switch(this);
-        control.setMinHeight(dp(48));
-        control.setTextColor(INK);
+        control.setMinHeight(ui.dp(48));
+        control.setTextColor(colours.ink());
         control.setText(label);
         control.setChecked(preferences.getBoolean(key, initial));
         control.setOnCheckedChangeListener((button, checked) -> preferences.edit().putBoolean(key, checked).apply());
-        add(control);
+        add(control, 3);
     }
 
     private void rideDetails() {
@@ -458,47 +508,137 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         List<Ride.Point> route = store.route(ride.id());
-        add(text(ride.title(), 24, true, INK));
-        add(text(date(ride), 14, false, MUTED));
-        add(text(km(ride.distance()) + "  ·  " + duration(ride.moving()) + " moving  ·  "
-                + duration(ride.elapsed()) + " elapsed", 15, true, LEAF));
-        TextView conditions = text(ride.weather() == null ? "Weather unavailable"
-                : ride.weather().label() + " · Open-Meteo", 15, false, MUTED);
+        add(ui.title(ride.title(), 37, colours.ink()), 8);
+        add(ui.text(date(ride), 14, false, colours.muted()), 12);
+        LinearLayout summary = ui.column();
+        summary.setPadding(ui.dp(15), ui.dp(13), ui.dp(15), ui.dp(13));
+        summary.setBackground(ui.shape(colours.violet(), 15, null));
+        summary.addView(ui.title(km(ride.distance()), 34, colours.violetInk()));
+        TextView duration = ui.text(getString(R.string.ride_duration,
+                duration(ride.moving()), duration(ride.elapsed())), 14, true, colours.violetInk());
+        duration.setPadding(0, ui.dp(5), 0, 0);
+        summary.addView(duration);
+        add(summary, 14);
+
+        TextView conditions = ui.text(weatherText(ride), 14, false, colours.muted());
         conditions.setTag("rideWeather");
-        add(conditions);
+        add(conditions, 12);
         if (ride.weather() == null && preferences.getBoolean("weather", false) && !route.isEmpty()) {
-            add(button("Look up weather", false, () -> {
-                conditions.setText("Looking up weather…");
+            add(ui.secondary("Look up weather", () -> {
+                conditions.setText(R.string.weather_loading);
                 Weather.load(this, ride.id(), route.get(0), () -> runOnUiThread(() -> {
-                    if (isFinishing() || isDestroyed()) {
-                        return;
+                    if (!isFinishing() && !isDestroyed()) {
+                        conditions.setText(weatherText(entry(ride.id())));
                     }
-                    RideStore.Summary updated = entry(ride.id());
-                    conditions.setText(updated != null && updated.weather() != null
-                            ? updated.weather().label() + " · Open-Meteo" : "Weather unavailable");
                 }));
-            }));
+            }), 12);
         }
-        if (!route.isEmpty()) {
-            RouteMap map = new RouteMap(this, route, preferences.getBoolean("maps", true));
-            content.addView(map, new LinearLayout.LayoutParams(-1, dp(320)));
-            TextView position = text("0:00 / " + duration(ride.elapsed()), 14, false, MUTED);
-            SeekBar scrub = new SeekBar(this);
-            scrub.setContentDescription("Position along ride");
-            scrub.setMax(1000);
-            scrub.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
-                    long offset = ride.elapsed() * progress / 1000;
-                    map.seek(ride.start() + offset);
-                    position.setText(duration(offset) + " / " + duration(ride.elapsed()));
+        if (route.isEmpty()) {
+            return;
+        }
+        showPlayback(ride, route);
+        add(ui.primary("Export GPX", () -> export(ride)), 12);
+    }
+
+    private String weatherText(RideStore.Summary ride) {
+        return ride != null && ride.weather() != null
+                ? getString(R.string.ride_weather, ride.weather().label()) : getString(R.string.weather_unavailable);
+    }
+
+    private void showPlayback(RideStore.Summary ride, List<Ride.Point> route) {
+        RouteMap map = new RouteMap(this, route, preferences.getBoolean("maps", true), colours);
+        LinearLayout mapHeader = ui.row();
+        mapHeader.addView(section("Route"), RideUi.weight());
+        mapHeader.addView(ui.secondary("Fit route", map::fit));
+        add(mapHeader, 7);
+        map.setBackground(ui.shape(colours.panel(), 16, colours.line()));
+        map.setClipToOutline(true);
+        content.addView(map, new LinearLayout.LayoutParams(-1, ui.dp(300)));
+
+        LinearLayout timeline = ui.row();
+        timeline.setPadding(0, ui.dp(13), 0, 0);
+        timeline.addView(ui.text("PLAYBACK", 11, true, colours.muted()), RideUi.weight());
+        TextView position = ui.text("", 15, true, colours.ink());
+        timeline.addView(position);
+        content.addView(timeline);
+
+        SeekBar slider = new SeekBar(this);
+        slider.setContentDescription("Time along the ride");
+        slider.setMax(2000);
+        slider.setProgressTintList(ColorStateList.valueOf(colours.accent()));
+        slider.setThumbTintList(ColorStateList.valueOf(colours.accent()));
+        content.addView(slider, new LinearLayout.LayoutParams(-1, ui.dp(47)));
+        RideProfile data = new RideProfile(route);
+
+        TextView speedLabel = ui.title("", 22, colours.accent());
+        TextView elevationLabel = ui.title("", 22, colours.dark() ? colours.violet() : colours.accent());
+        ProfileChart speedChart = new ProfileChart(this, data, RideProfile.Metric.SPEED, colours);
+        ProfileChart altitudeChart = new ProfileChart(this, data, RideProfile.Metric.ELEVATION, colours);
+        java.util.function.LongConsumer scrubTo = epoch -> {
+            long offset = epoch - data.start();
+            slider.setProgress((int) Math.round(2000.0 * offset / Math.max(1, ride.elapsed())));
+            updatePlayback(map, data, offset, position, slider, speedLabel, elevationLabel);
+            speedChart.seek(epoch);
+            altitudeChart.seek(epoch);
+        };
+        speedChart.setOnScrub(scrubTo);
+        altitudeChart.setOnScrub(scrubTo);
+        addProfile("Speed", speedLabel, speedChart, "No speed samples for this ride.");
+        if (route.stream().noneMatch(point -> Double.isFinite(point.speedMetresPerSecond())) && speedChart.hasData()) {
+            add(ui.text("Estimated from the recorded route.", 13, false, colours.muted()), 15);
+        }
+        addProfile("Elevation", elevationLabel, altitudeChart, "No GPS elevation was recorded for this ride.");
+        if (altitudeChart.hasData()) {
+            add(ui.text("GPS elevation, smoothed over nearby samples.", 13, false, colours.muted()), 15);
+        }
+
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seek, int progress, boolean fromUser) {
+                if (fromUser) {
+                    long offset = ride.elapsed() * progress / 2000;
+                    scrubTo.accept(ride.start() + offset);
                 }
-                @Override public void onStartTrackingTouch(SeekBar bar) {}
-                @Override public void onStopTrackingTouch(SeekBar bar) {}
-            });
-            add(scrub);
-            add(position);
-            add(button("Export GPX", true, () -> export(ride)));
+            }
+            @Override public void onStartTrackingTouch(SeekBar seek) {}
+            @Override public void onStopTrackingTouch(SeekBar seek) {}
+        });
+        long restored = Math.min(playbackOffset, ride.elapsed());
+        scrubTo.accept(ride.start() + restored);
+    }
+
+    private void addProfile(String title, TextView value, ProfileChart chart, String empty) {
+        LinearLayout header = ui.row();
+        header.addView(section(title), RideUi.weight());
+        if (chart.hasData()) {
+            header.addView(value);
         }
+        add(header, 4);
+        if (chart.hasData()) {
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, ui.dp(122));
+            size.bottomMargin = ui.dp(10);
+            content.addView(chart, size);
+        } else {
+            add(ui.text(empty, 14, false, colours.muted()), 18);
+        }
+    }
+
+    private void updatePlayback(RouteMap map, RideProfile data, long offset, TextView position, SeekBar slider,
+                                TextView speed, TextView elevation) {
+        playbackOffset = offset;
+        long time = data.start() + offset;
+        map.seek(time);
+        String displayTime = getString(R.string.ride_playback_time, duration(offset), duration(data.end() - data.start()));
+        position.setText(displayTime);
+        ViewCompat.setStateDescription(slider, displayTime);
+        speed.setText(metric(data.valueAt(RideProfile.Metric.SPEED, time), R.string.profile_speed));
+        elevation.setText(metric(data.valueAt(RideProfile.Metric.ELEVATION, time), R.string.profile_elevation));
+    }
+
+    private String metric(double value, int units) {
+        if (!Double.isFinite(value)) {
+            return getString(R.string.profile_missing);
+        }
+        return getString(units, value);
     }
 
     private RideStore.Summary entry(String id) {
@@ -626,6 +766,10 @@ public final class MainActivity extends ComponentActivity {
                 }
                 serializer.startTag(namespace, "trkpt").attribute(null, "lat", Double.toString(point.lat()))
                         .attribute(null, "lon", Double.toString(point.lon()));
+                if (Double.isFinite(point.elevationMetres())) {
+                    serializer.startTag(namespace, "ele").text(Double.toString(point.elevationMetres()))
+                            .endTag(namespace, "ele");
+                }
                 serializer.startTag(namespace, "time").text(Instant.ofEpochMilli(point.time()).toString())
                         .endTag(namespace, "time");
                 serializer.endTag(namespace, "trkpt");
@@ -640,78 +784,10 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private void add(View view) {
+    private void add(View view, int bottomMargin) {
         LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2);
-        size.bottomMargin = dp(10);
+        size.bottomMargin = ui.dp(bottomMargin);
         content.addView(view, size);
-    }
-
-    private EditText field(LinearLayout form, String hint, int inputType) {
-        EditText field = new EditText(this);
-        field.setHint(hint);
-        field.setInputType(inputType);
-        field.setSingleLine();
-        form.addView(field, -1, -2);
-        return field;
-    }
-
-    private static double decimal(EditText field) {
-        return Double.parseDouble(field.getText().toString().trim().replace(',', '.'));
-    }
-
-    private Button button(String label, boolean primary, Runnable click) {
-        Button button = new Button(this);
-        button.setText(label);
-        button.setTextSize(14);
-        button.setAllCaps(false);
-        button.setMinHeight(dp(46));
-        button.setMinimumHeight(dp(46));
-        button.setBackgroundTintList(ColorStateList.valueOf(primary ? LEAF : TINT));
-        button.setTextColor(primary ? Color.WHITE : INK);
-        button.setOnClickListener(view -> click.run());
-        return button;
-    }
-
-    private TextView text(String value, int size, boolean bold, int color) {
-        TextView view = new TextView(this);
-        view.setText(value);
-        view.setTextSize(size);
-        view.setTextColor(color);
-        if (bold) {
-            view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        }
-        view.setPadding(0, dp(3), 0, dp(3));
-        return view;
-    }
-
-    private LinearLayout card(int color) {
-        LinearLayout layout = column();
-        GradientDrawable background = new GradientDrawable();
-        background.setColor(color);
-        background.setCornerRadius(dp(14));
-        layout.setBackground(background);
-        layout.setPadding(dp(14), dp(10), dp(14), dp(10));
-        return layout;
-    }
-
-    private LinearLayout row() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.HORIZONTAL);
-        return layout;
-    }
-
-    private LinearLayout column() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        return layout;
-    }
-
-    private LinearLayout.LayoutParams weight() {
-        return new LinearLayout.LayoutParams(0, -2, 1);
-    }
-
-    private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
     private void toast(String message) {

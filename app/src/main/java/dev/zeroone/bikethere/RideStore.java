@@ -14,7 +14,7 @@ final class RideStore extends SQLiteOpenHelper {
                    double distance, Weather.Conditions weather) {}
 
     RideStore(Context context) {
-        super(context.getApplicationContext(), "rides.db", null, 1);
+        super(context.getApplicationContext(), "rides.db", null, 2);
         setWriteAheadLoggingEnabled(true);
     }
 
@@ -27,7 +27,7 @@ final class RideStore extends SQLiteOpenHelper {
                 + "distance REAL NOT NULL, draft INTEGER NOT NULL, temperature REAL, wind REAL, direction INTEGER)");
         db.execSQL("CREATE TABLE points (ride_id TEXT NOT NULL REFERENCES rides(id) ON DELETE CASCADE, "
                 + "position INTEGER NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, time INTEGER NOT NULL, "
-                + "segment INTEGER NOT NULL, PRIMARY KEY (ride_id, position)) WITHOUT ROWID");
+                + "segment INTEGER NOT NULL, elevation REAL, speed REAL, PRIMARY KEY (ride_id, position)) WITHOUT ROWID");
     }
 
     @Override
@@ -37,7 +37,12 @@ final class RideStore extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int from, int to) {
-        throw new IllegalStateException("Missing migration from " + from + " to " + to);
+        if (from == 1 && to == 2) {
+            db.execSQL("ALTER TABLE points ADD COLUMN elevation REAL");
+            db.execSQL("ALTER TABLE points ADD COLUMN speed REAL");
+        } else {
+            throw new IllegalStateException("Missing migration from " + from + " to " + to);
+        }
     }
 
     List<Tracker.Place> places() {
@@ -103,6 +108,12 @@ final class RideStore extends SQLiteOpenHelper {
                 row.put("lon", point.lon());
                 row.put("time", point.time());
                 row.put("segment", point.segmentStart() ? 1 : 0);
+                if (Double.isFinite(point.elevationMetres())) {
+                    row.put("elevation", point.elevationMetres());
+                }
+                if (Double.isFinite(point.speedMetresPerSecond())) {
+                    row.put("speed", point.speedMetresPerSecond());
+                }
                 db.insertOrThrow("points", null, row);
             }
             db.setTransactionSuccessful();
@@ -133,11 +144,13 @@ final class RideStore extends SQLiteOpenHelper {
     List<Ride.Point> route(String id) {
         List<Ride.Point> points = new ArrayList<>();
         try (Cursor cursor = getReadableDatabase().rawQuery(
-                "SELECT lat, lon, time, segment FROM points WHERE ride_id = ? ORDER BY position",
+                "SELECT lat, lon, time, segment, elevation, speed FROM points WHERE ride_id = ? ORDER BY position",
                 new String[] {id})) {
             while (cursor.moveToNext()) {
                 points.add(new Ride.Point(cursor.getDouble(0), cursor.getDouble(1),
-                        cursor.getLong(2), cursor.getInt(3) != 0));
+                        cursor.getLong(2), cursor.getInt(3) != 0,
+                        cursor.isNull(4) ? Double.NaN : cursor.getDouble(4),
+                        cursor.isNull(5) ? Double.NaN : cursor.getDouble(5)));
             }
         }
         return points;

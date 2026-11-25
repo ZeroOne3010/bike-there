@@ -10,7 +10,8 @@ final class Tracker {
     enum State { DISARMED, READY, RIDING, PAUSED }
 
     record Place(long id, String name, double lat, double lon, int radius) {}
-    record Fix(double lat, double lon, long time, long elapsed, float accuracy, float speed) {}
+    record Fix(double lat, double lon, long time, long elapsed, float accuracy, float speed,
+               double elevationMetres) {}
     private record Candidate(Fix fix, boolean moving) {}
 
     private static final long BUFFER_MS = 25_000;
@@ -200,7 +201,7 @@ final class Tracker {
         if (points.isEmpty()) {
             firstElapsed = fix.elapsed();
         }
-        points.add(new Ride.Point(fix.lat(), fix.lon(), time, segmentStart));
+        points.add(new Ride.Point(fix.lat(), fix.lon(), time, segmentStart, fix.elevationMetres(), fix.speed()));
     }
 
     private Ride completed(Place destination) {

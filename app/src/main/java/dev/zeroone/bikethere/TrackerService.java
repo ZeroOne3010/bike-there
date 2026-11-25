@@ -152,8 +152,11 @@ public final class TrackerService extends Service implements LocationListener {
         statusDetail = null;
         float speed = fix.hasSpeed() && (!fix.hasSpeedAccuracy() || fix.getSpeedAccuracyMetersPerSecond() <= 1.5f)
                 ? fix.getSpeed() : Float.NaN;
+        double elevation = fix.hasAltitude()
+                && (!fix.hasVerticalAccuracy() || fix.getVerticalAccuracyMeters() <= 25)
+                ? fix.getAltitude() : Double.NaN;
         Ride completed = tracker.accept(new Tracker.Fix(fix.getLatitude(), fix.getLongitude(),
-                fix.getTime(), elapsed, fix.getAccuracy(), speed), places, ZoneId.systemDefault());
+                fix.getTime(), elapsed, fix.getAccuracy(), speed, elevation), places, ZoneId.systemDefault());
         save(completed);
         if (tracker.state() == Tracker.State.RIDING && elapsed >= nextCheckpoint) {
             Ride snapshot = tracker.snapshot();

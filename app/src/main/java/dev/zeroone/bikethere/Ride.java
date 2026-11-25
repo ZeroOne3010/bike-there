@@ -5,7 +5,8 @@ import java.time.ZoneId;
 import java.util.List;
 
 record Ride(String id, String title, String zone, List<Point> points) {
-    record Point(double lat, double lon, long time, boolean segmentStart) {}
+    record Point(double lat, double lon, long time, boolean segmentStart,
+                 double elevationMetres, double speedMetresPerSecond) {}
 
     long started() {
         return points.get(0).time();
