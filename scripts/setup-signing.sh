@@ -30,17 +30,20 @@ else
     staging=$(mktemp -d "$backup_dir/.new.XXXXXXXX")
     trap 'rm -rf "$staging"' EXIT
     openssl rand -hex 32 > "$staging/password"
-    keytool -genkeypair -storetype PKCS12 -keystore "$staging/bike-there.p12" \
-        -storepass:file "$staging/password" -alias bike-there -keyalg RSA -keysize 4096 \
-        -validity 12000 -dname 'CN=Bike There'
+    openssl req -x509 -newkey rsa:4096 -sha256 -days 12000 -subj '/CN=Bike There' \
+        -passout "file:$staging/password" -keyout "$staging/key.pem" -out "$staging/cert.pem"
+    openssl pkcs12 -export -name bike-there -macalg sha256 \
+        -inkey "$staging/key.pem" -in "$staging/cert.pem" -out "$staging/bike-there.p12" \
+        -passin fd:3 -passout "file:$staging/password" 3< "$staging/password"
+    rm "$staging/key.pem" "$staging/cert.pem"
     mv "$staging/password" "$passfile"
     mv "$staging/bike-there.p12" "$keystore"
     rmdir "$staging"
     trap - EXIT
 fi
 
-fingerprint=$(keytool -exportcert -storetype PKCS12 -keystore "$keystore" \
-    -storepass:file "$passfile" -alias bike-there | openssl dgst -sha256 -r | awk '{print $1}')
+fingerprint=$(openssl pkcs12 -in "$keystore" -passin "file:$passfile" -clcerts -nokeys \
+    | openssl x509 -outform der | openssl dgst -sha256 -r | awk '{print $1}')
 if [[ -n "$configured_fingerprint" && "$configured_fingerprint" != "$fingerprint" ]]; then
     echo "This key does not match the project's configured signing certificate." >&2
     exit 1

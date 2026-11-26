@@ -28,7 +28,7 @@ The debug preview uses a separate application ID and a generated debug certifica
 
 ## Publish a signed APK
 
-On a computer with JDK 17 or later and GitHub CLI, sign into the repository owner account from a checkout of this repository:
+On a computer with OpenSSL and GitHub CLI, sign into the repository owner account from a checkout of this repository:
 
 ```sh
 gh auth login
@@ -48,11 +48,11 @@ The Android workflow tests the app, builds the APK, checks its signing certifica
 
 ### Set up signing on Android
 
-Install [Termux from F-Droid](https://f-droid.org/packages/com.termux/). In Termux, run the following and complete the GitHub device sign-in in your phone browser:
+In Termux, run the following and complete the GitHub device sign-in in your phone browser:
 
 ```sh
 pkg update
-pkg install git gh openjdk-17 openssl
+pkg install git gh openssl
 gh auth login --hostname github.com --git-protocol https --web
 gh auth setup-git
 git clone https://github.com/ZeroOne3010/bike-there.git
@@ -62,7 +62,7 @@ git tag v0.6.0
 git push origin v0.6.0
 ```
 
-GitHub builds and signs the APK. Termux generates the key and sends it to Actions as an encrypted repository secret. If a release key already exists, restore that key and pass its backup directory to the script.
+The script uses OpenSSL to generate the key in Termux and sends it to Actions as an encrypted repository secret. GitHub builds and signs the APK. If a release key already exists, restore that key and pass its backup directory to the script.
 
 Termux keeps `~/.bike-there-signing` in app-private storage. Back up both files before uninstalling Termux or resetting the phone. To make an encrypted backup in Downloads, grant Termux storage access and choose a strong backup passphrase:
 
