@@ -47,10 +47,11 @@ import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends ComponentActivity {
-    private static final int RIDES = 0;
+    private static final int TRACKER = 0;
     private static final int PLACES = 1;
     private static final int SETTINGS = 2;
     private static final int STATS = 3;
+    private static final int LOG = 4;
     private static final String STATS_DISTANCE = "statsDistance";
 
     private static final int LOCATION_PERMISSION = 10;
@@ -66,7 +67,7 @@ public final class MainActivity extends ComponentActivity {
     private RideColors colours;
     private long playbackOffset;
     private ScrollView scroll;
-    private int page = RIDES;
+    private int page = TRACKER;
     private YearMonth statsMonth;
     private int historyLimit = 40;
     private String selectedRide;
@@ -91,8 +92,10 @@ public final class MainActivity extends ComponentActivity {
         public void handleOnBackPressed() {
             if (selectedRide != null) {
                 closeRide();
+            } else if (page == PLACES) {
+                closePlaces();
             } else {
-                page = RIDES;
+                page = TRACKER;
                 render(false);
                 findMapLocation(false);
             }
@@ -124,7 +127,7 @@ public final class MainActivity extends ComponentActivity {
             store.recoverInterruptedRides();
         }
         if (saved != null) {
-            page = saved.getInt("page", RIDES);
+            page = saved.getInt("page", TRACKER);
             String month = saved.getString("statsMonth");
             statsMonth = month == null ? null : YearMonth.parse(month);
             historyLimit = saved.getInt("limit", 40);
@@ -140,6 +143,17 @@ public final class MainActivity extends ComponentActivity {
     }
 
     @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        if (intent.getBooleanExtra("notification", false)) {
+            selectedRide = null;
+            page = TRACKER;
+            render(false);
+            findMapLocation(false);
+        }
+    }
+
+    @Override
     protected void onStart() {
         super.onStart();
         IntentFilter filter = new IntentFilter(TrackerService.UPDATE);
@@ -147,7 +161,7 @@ public final class MainActivity extends ComponentActivity {
         ContextCompat.registerReceiver(this, statusChanges, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         render(true);
         uiHandler.post(liveTick);
-        if (page == RIDES && selectedRide == null) {
+        if (page == TRACKER && selectedRide == null) {
             findMapLocation(false);
         }
     }
@@ -221,7 +235,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void render(boolean keepScroll) {
-        back.setEnabled(selectedRide != null || page != RIDES);
+        back.setEnabled(selectedRide != null || page != TRACKER);
         int scrollPosition = keepScroll && scroll != null ? scroll.getScrollY() : 0;
         if (keepScroll && selectedRide != null && content != null) {
             refreshWeatherLabel();
@@ -245,7 +259,8 @@ public final class MainActivity extends ComponentActivity {
                 case PLACES -> placesPage();
                 case SETTINGS -> settingsPage();
                 case STATS -> statsPage();
-                default -> historyPage();
+                case LOG -> historyPage();
+                default -> add(trackingPanel(), 0);
             }
             root.addView(ui.hairline());
             root.addView(navigation());
@@ -260,21 +275,29 @@ public final class MainActivity extends ComponentActivity {
         header.setPadding(ui.dp(16), ui.dp(7), ui.dp(16), ui.dp(7));
         header.setMinimumHeight(ui.dp(55));
         if (selectedRide != null) {
-            header.addView(ui.secondary("← Rides", this::closeRide));
+            header.addView(ui.secondary("← Ride log", this::closeRide));
         } else {
+            if (page == PLACES) {
+                Button settings = ui.secondary("‹", this::closePlaces);
+                settings.setContentDescription("Back to settings");
+                header.addView(settings);
+            }
             String title = switch (page) {
                 case PLACES -> "Places";
                 case SETTINGS -> "Settings";
                 case STATS -> "Stats";
+                case LOG -> "Ride log";
                 default -> "BIKE THERE";
             };
-            TextView heading = page == RIDES ? ui.title(title, 34, colours.ink())
+            TextView heading = page == TRACKER ? ui.title(title, 34, colours.ink())
                     : ui.text(title, 24, true, colours.ink());
             ViewCompat.setAccessibilityHeading(heading, true);
-            header.addView(heading, RideUi.weight());
-            if (page != RIDES && TrackerService.state() != Tracker.State.DISARMED) {
+            LinearLayout.LayoutParams headingSize = RideUi.weight();
+            if (page == PLACES) headingSize.leftMargin = ui.dp(10);
+            header.addView(heading, headingSize);
+            if (page != TRACKER && TrackerService.state() != Tracker.State.DISARMED) {
                 header.addView(ui.secondary("Tracker", () -> {
-                            page = RIDES;
+                            page = TRACKER;
                             render(false);
                             findMapLocation(false);
                         }));
@@ -287,18 +310,18 @@ public final class MainActivity extends ComponentActivity {
         LinearLayout bar = ui.row();
         bar.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(3));
         bar.setBaselineAligned(false);
-        String[] tabs = {"Rides", "Stats", "Places", "Settings"};
-        int[] pages = {RIDES, STATS, PLACES, SETTINGS};
-        int[] icons = {R.drawable.tab_rides, R.drawable.tab_stats, R.drawable.tab_places, R.drawable.tab_settings};
+        String[] tabs = {"Tracker", "Ride log", "Stats", "Settings"};
+        int[] pages = {TRACKER, LOG, STATS, SETTINGS};
+        int[] icons = {R.drawable.tab_rides, R.drawable.tab_log, R.drawable.tab_stats, R.drawable.tab_settings};
         for (int i = 0; i < tabs.length; i++) {
             int tab = pages[i];
-            boolean current = tab == page;
+            boolean current = tab == page || (tab == SETTINGS && page == PLACES);
             int foreground = current ? colours.ink() : colours.muted();
             Button item = ui.button(tabs[i], current ? colours.panel() : Color.TRANSPARENT,
                     foreground, null, () -> {
                         page = tab;
                         render(false);
-                        if (tab == RIDES) {
+                        if (tab == TRACKER) {
                             findMapLocation(false);
                         }
                     });
@@ -355,7 +378,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void updateLivePanel() {
-        if (livePanel != null && page == RIDES && selectedRide == null) {
+        if (livePanel != null && page == TRACKER && selectedRide == null) {
             long now = SystemClock.elapsedRealtime();
             livePanel.update(live(now), now, hasLocation());
         }
@@ -403,9 +426,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void historyPage() {
-        add(trackingPanel(), 23);
         List<RideStore.Summary> history = store.history();
-        add(section("Ride log"), 8);
         content.addView(ui.hairline());
         if (history.isEmpty()) {
             TextView empty = ui.text("No rides yet", 14, false, colours.muted());
@@ -487,6 +508,11 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
+    private void closePlaces() {
+        page = SETTINGS;
+        render(false);
+    }
+
     private void openPlaceEditor(long id) {
         startActivity(new Intent(this, PlaceEditorActivity.class).putExtra(PlaceEditorActivity.PLACE, id));
     }
@@ -543,6 +569,10 @@ public final class MainActivity extends ComponentActivity {
         toggle("Enable auto-start when opening Bike There", "openToArm", true);
         int timeout = preferences.getInt(TrackerService.SET_TIMEOUT, TrackerService.DEFAULT_TIMEOUT);
         content.addView(listEntry("Auto-start timeout", getString(R.string.timeout_minutes, timeout), () -> editTimeout(timeout)));
+        content.addView(listEntry("Places", "Manage saved arrival circles", () -> {
+            page = PLACES;
+            render(false);
+        }));
         add(ui.hairline(), 13);
         add(section("Maps & weather"), 5);
         toggle("OpenStreetMap tiles", "maps", true);
@@ -662,6 +692,10 @@ public final class MainActivity extends ComponentActivity {
         map.setBackground(ui.shape(colours.panel(), 1, colours.line()));
         map.setClipToOutline(true);
         content.addView(map, new LinearLayout.LayoutParams(-1, ui.dp(300)));
+        TextView legend = ui.text("▶ Start    ▦ Finish", 12, true, colours.muted());
+        legend.setContentDescription("Triangle marks the start. Checkered flag marks the finish.");
+        legend.setPadding(0, ui.dp(7), 0, 0);
+        add(legend, 0);
 
         LinearLayout timeline = ui.row();
         timeline.setPadding(0, ui.dp(13), 0, 0);
@@ -760,6 +794,7 @@ public final class MainActivity extends ComponentActivity {
 
     private void closeRide() {
         selectedRide = null;
+        page = LOG;
         render(false);
     }
 

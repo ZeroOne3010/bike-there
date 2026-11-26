@@ -14,6 +14,7 @@ import java.util.List;
 @SuppressLint("ViewConstructor")
 final class LiveMap extends SlippyMap {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RouteMarkers markers;
     private final Path track = new Path();
     private List<Ride.Point> route = Collections.emptyList();
     private Location fix;
@@ -24,6 +25,7 @@ final class LiveMap extends SlippyMap {
 
     LiveMap(Context context, RideColors colours, boolean tiles) {
         super(context, colours, tiles);
+        markers = new RouteMarkers(density);
         showTiles(false);
         setContentDescription("Live ride map. Pan or pinch to explore.");
     }
@@ -122,6 +124,7 @@ final class LiveMap extends SlippyMap {
         canvas.drawPath(track, paint);
 
         if (fix == null) {
+            drawStart(canvas);
             return;
         }
         float x = screenX(mapX(fix.getLongitude()));
@@ -137,5 +140,13 @@ final class LiveMap extends SlippyMap {
         canvas.drawCircle(x, y, 9 * density, paint);
         paint.setColor(accent);
         canvas.drawCircle(x, y, 5.5f * density, paint);
+        drawStart(canvas);
+    }
+
+    private void drawStart(Canvas canvas) {
+        if (!route.isEmpty()) {
+            Ride.Point start = route.get(0);
+            markers.drawStart(canvas, screenX(mapX(start.lon())), screenY(mapY(start.lat())));
+        }
     }
 }

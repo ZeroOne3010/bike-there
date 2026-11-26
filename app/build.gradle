@@ -11,8 +11,8 @@ android {
         applicationId 'dev.zeroone.bikethere'
         minSdk 26
         targetSdk 36
-        versionCode = (System.getenv('BIKE_THERE_VERSION_CODE') ?: '5001').toInteger()
-        versionName = System.getenv('BIKE_THERE_VERSION_NAME') ?: '0.5.1'
+        versionCode = (System.getenv('BIKE_THERE_VERSION_CODE') ?: '6000').toInteger()
+        versionName = System.getenv('BIKE_THERE_VERSION_NAME') ?: '0.6.0'
     }
 
     signingConfigs {

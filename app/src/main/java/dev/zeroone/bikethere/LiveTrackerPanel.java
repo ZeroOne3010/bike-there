@@ -26,7 +26,7 @@ final class LiveTrackerPanel extends LinearLayout {
     private final TextView approximate;
     private final TextView elapsed;
     private final TextView average;
-    private final TextView maximum;
+    private final TextView distance;
     private final TextView help;
     private final LinearLayout actions;
     private final Consumer<String> dispatch;
@@ -91,7 +91,7 @@ final class LiveTrackerPanel extends LinearLayout {
         instruments.setPadding(0, ui.dp(10), 0, ui.dp(8));
         elapsed = addInstrument(instruments, "ELAPSED", 42, 1.55f);
         average = addInstrument(instruments, "AVG KM/H", 30, 1);
-        maximum = addInstrument(instruments, "MAX KM/H", 30, 1);
+        distance = addInstrument(instruments, "DISTANCE KM", 30, 1);
         addView(instruments);
         addView(ui.hairline());
 
@@ -129,7 +129,7 @@ final class LiveTrackerPanel extends LinearLayout {
         setText(satellites, signal);
         setText(elapsed, MainActivity.duration(live.stats().elapsedMillis()));
         setText(average, speed(live.stats().averageSpeedMps()));
-        setText(maximum, speed(live.stats().topSpeedMps()));
+        setText(distance, String.format(Locale.getDefault(), "%.2f", live.stats().distanceMetres() / 1000));
         setText(help, detail(live, hasFix));
         if (state != controlsFor || live.manualPending() != controlsManual) {
             controlsFor = state;

@@ -13,6 +13,7 @@ final class RouteMap extends SlippyMap {
     private final double[] x, y;
     private final Path routeLine = new Path();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final RouteMarkers markers;
     private long time;
     private double left, right, top, bottom;
     private boolean fitted;
@@ -20,6 +21,7 @@ final class RouteMap extends SlippyMap {
     RouteMap(Context context, List<Ride.Point> route, boolean maps, RideColors colours) {
         super(context, colours, maps);
         this.route = route;
+        markers = new RouteMarkers(density);
         time = route.get(0).time();
         x = new double[route.size()];
         y = new double[route.size()];
@@ -35,7 +37,7 @@ final class RouteMap extends SlippyMap {
             top = Math.min(top, y[i]);
             bottom = Math.max(bottom, y[i]);
         }
-        setContentDescription("Ride map. Pan or pinch to explore the recorded route.");
+        setContentDescription("Ride map with a start triangle and a checkered finish flag. Pan or pinch to explore the recorded route.");
     }
 
     void seek(long time) {
@@ -44,7 +46,7 @@ final class RouteMap extends SlippyMap {
     }
 
     void fit() {
-        double padding = 28 * density;
+        double padding = 44 * density;
         double world = Math.min(Math.max(1, getWidth() - 2 * padding) / Math.max(1e-9, right - left),
                 Math.max(1, getHeight() - 2 * padding) / Math.max(1e-9, bottom - top));
         double position = Math.min(18, Math.log(world / worldAt(0)) / Math.log(2));
@@ -103,5 +105,8 @@ final class RouteMap extends SlippyMap {
         canvas.drawCircle(screenX(longitude), screenY(latitude), 9 * density, paint);
         paint.setColor(colours.accent());
         canvas.drawCircle(screenX(longitude), screenY(latitude), 6 * density, paint);
+
+        int last = route.size() - 1;
+        markers.drawEnds(canvas, screenX(x[0]), screenY(y[0]), screenX(x[last]), screenY(y[last]));
     }
 }
