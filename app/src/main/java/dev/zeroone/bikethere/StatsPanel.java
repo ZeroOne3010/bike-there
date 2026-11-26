@@ -168,12 +168,13 @@ final class StatsPanel extends LinearLayout {
         cell.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         int ink = recorded ? colours.violetInk() : colours.muted();
         TextView date = ui.text(counts.format(day.getDayOfMonth()), 12, false, ink);
+        date.setGravity(Gravity.CENTER);
         date.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         cell.addView(date);
         String metric = distanceMode ? distance.format(total.metres() / 1000) : counts.format(total.rides());
         if (recorded) {
             TextView value = ui.title(metric, 17, ink);
-            value.setSingleLine(true);
+            value.setMaxLines(1);
             value.setGravity(Gravity.CENTER);
             value.setAutoSizeTextTypeUniformWithConfiguration(9, 17, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
             value.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
