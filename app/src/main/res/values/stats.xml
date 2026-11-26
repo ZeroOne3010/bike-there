@@ -1,0 +1,9 @@
+<resources>
+    <string name="stats_km">%1$s km</string>
+    <string name="stats_year">YEAR %1$s</string>
+    <string name="stats_day">%1$s, %2$s</string>
+    <plurals name="stats_ride_count">
+        <item quantity="one">%1$s ride</item>
+        <item quantity="other">%1$s rides</item>
+    </plurals>
+</resources>

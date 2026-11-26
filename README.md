@@ -8,7 +8,7 @@ Bike There is a personal Android ride recorder for everyday cycling. Rides, save
 2. Add places such as Home and Daycare under **Places**. Tap a map location or use **My location**, then set the arrival circle with the radius slider.
 3. While acquiring GPS the map can centre on an approximate location, and supported devices show how many satellites are seen and used. **Auto-start** waits for cycling after GPS is ready. **Manual start** begins at the next usable fix. The live map shows elapsed time, average speed over moving time, and maximum recorded GPS speed. A stop of about 12 seconds pauses moving time. A stop of about 30 seconds within a saved place ends and names the ride, trims off the wait and arms the next leg.
 4. Use **Disarm** or **Finish & disarm** in the app or the status notification to turn off GPS. The Ready state also expires after an adjustable delay, initially 20 minutes.
-5. Tap a finished ride to scrub its map, speed and elevation together or save a timestamped GPX. The Rides tab shows distance this month and this year.
+5. Tap a finished ride to scrub its map, speed and elevation together or save a timestamped GPX. The Stats tab shows distance totals and a monthly calendar of rides or kilometres per day. You can go back to the month of your first ride. Settings shows the installed app version.
 
 The activity estimate uses GPS speed, so very slow riding and brisk walking can be hard to tell apart. Use **Manual start** for a manual start. Test the timing with your usual routes and stops.
 
@@ -40,8 +40,8 @@ The script creates the signing key once, stores it and its password under `~/.bi
 Create and push a version tag from the intended release commit:
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 The Android workflow tests the app, builds the APK, checks its signing certificate and attaches it to a GitHub Release. Each higher version tag produces a higher Android version code. If the secrets are set after a tag was pushed, rerun the failed release job in GitHub Actions.
@@ -58,8 +58,8 @@ gh auth setup-git
 git clone https://github.com/ZeroOne3010/bike-there.git
 cd bike-there
 bash scripts/setup-signing.sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
 GitHub builds and signs the APK. Termux generates the key and sends it to Actions as an encrypted repository secret. If a release key already exists, restore that key and pass its backup directory to the script.

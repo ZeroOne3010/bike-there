@@ -39,7 +39,6 @@ import androidx.core.view.ViewCompat;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.time.Year;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -48,6 +47,12 @@ import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends ComponentActivity {
+    private static final int RIDES = 0;
+    private static final int PLACES = 1;
+    private static final int SETTINGS = 2;
+    private static final int STATS = 3;
+    private static final String STATS_DISTANCE = "statsDistance";
+
     private static final int LOCATION_PERMISSION = 10;
     private static final int NOTIFICATION_PERMISSION = 11;
     private static final int EXPORT = 12;
@@ -61,7 +66,8 @@ public final class MainActivity extends ComponentActivity {
     private RideColors colours;
     private long playbackOffset;
     private ScrollView scroll;
-    private int page;
+    private int page = RIDES;
+    private YearMonth statsMonth;
     private int historyLimit = 40;
     private String selectedRide;
     private String exportingRide;
@@ -84,7 +90,7 @@ public final class MainActivity extends ComponentActivity {
             if (selectedRide != null) {
                 closeRide();
             } else {
-                page = 0;
+                page = RIDES;
                 render(false);
                 findMapLocation(false);
             }
@@ -114,7 +120,9 @@ public final class MainActivity extends ComponentActivity {
             store.recoverInterruptedRides();
         }
         if (saved != null) {
-            page = saved.getInt("page");
+            page = saved.getInt("page", RIDES);
+            String month = saved.getString("statsMonth");
+            statsMonth = month == null ? null : YearMonth.parse(month);
             historyLimit = saved.getInt("limit", 40);
             selectedRide = saved.getString("ride");
             exportingRide = saved.getString("export");
@@ -135,7 +143,7 @@ public final class MainActivity extends ComponentActivity {
         ContextCompat.registerReceiver(this, statusChanges, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
         render(true);
         uiHandler.post(liveTick);
-        if (page == 0 && selectedRide == null) {
+        if (page == RIDES && selectedRide == null) {
             findMapLocation(false);
         }
     }
@@ -172,6 +180,9 @@ public final class MainActivity extends ComponentActivity {
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putInt("page", page);
+        if (statsMonth != null) {
+            out.putString("statsMonth", statsMonth.toString());
+        }
         out.putInt("limit", historyLimit);
         out.putString("ride", selectedRide);
         out.putString("export", exportingRide);
@@ -180,7 +191,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void render(boolean keepScroll) {
-        back.setEnabled(selectedRide != null || page != 0);
+        back.setEnabled(selectedRide != null || page != RIDES);
         int scrollPosition = keepScroll && scroll != null ? scroll.getScrollY() : 0;
         if (keepScroll && selectedRide != null && content != null) {
             refreshWeatherLabel();
@@ -201,8 +212,9 @@ public final class MainActivity extends ComponentActivity {
             rideDetails();
         } else {
             switch (page) {
-                case 1 -> placesPage();
-                case 2 -> settingsPage();
+                case PLACES -> placesPage();
+                case SETTINGS -> settingsPage();
+                case STATS -> statsPage();
                 default -> historyPage();
             }
             root.addView(ui.hairline());
@@ -220,17 +232,18 @@ public final class MainActivity extends ComponentActivity {
             header.addView(ui.secondary("← Rides", this::closeRide));
         } else {
             String title = switch (page) {
-                case 1 -> "Places";
-                case 2 -> "Settings";
+                case PLACES -> "Places";
+                case SETTINGS -> "Settings";
+                case STATS -> "Stats";
                 default -> "BIKE THERE";
             };
-            TextView heading = ui.title(title, page == 0 ? 40 : 35, colours.ink());
+            TextView heading = ui.title(title, page == RIDES ? 40 : 35, colours.ink());
             ViewCompat.setAccessibilityHeading(heading, true);
             header.addView(heading, RideUi.weight());
-            if (page != 0 && TrackerService.state() != Tracker.State.DISARMED) {
+            if (page != RIDES && TrackerService.state() != Tracker.State.DISARMED) {
                 header.addView(ui.button("Tracker", colours.violet(), colours.violetInk(),
                         null, () -> {
-                            page = 0;
+                            page = RIDES;
                             render(false);
                             findMapLocation(false);
                         }));
@@ -242,17 +255,18 @@ public final class MainActivity extends ComponentActivity {
     private LinearLayout navigation() {
         LinearLayout bar = ui.row();
         bar.setPadding(ui.dp(16), ui.dp(7), ui.dp(16), ui.dp(7));
-        String[] tabs = {"Rides", "Places", "Settings"};
-        int[] icons = {R.drawable.tab_rides, R.drawable.tab_places, R.drawable.tab_settings};
+        String[] tabs = {"Rides", "Stats", "Places", "Settings"};
+        int[] pages = {RIDES, STATS, PLACES, SETTINGS};
+        int[] icons = {R.drawable.tab_rides, R.drawable.tab_stats, R.drawable.tab_places, R.drawable.tab_settings};
         for (int i = 0; i < tabs.length; i++) {
-            int tab = i;
+            int tab = pages[i];
             boolean current = tab == page;
             int foreground = current ? colours.violetInk() : colours.muted();
             Button item = ui.button(tabs[i], current ? colours.violet() : Color.TRANSPARENT,
                     foreground, null, () -> {
                         page = tab;
                         render(false);
-                        if (tab == 0) {
+                        if (tab == RIDES) {
                             findMapLocation(false);
                         }
                     });
@@ -262,6 +276,7 @@ public final class MainActivity extends ComponentActivity {
             item.setCompoundDrawables(null, icon, null, null);
             item.setCompoundDrawablePadding(ui.dp(3));
             item.setTextSize(12);
+            item.setPadding(ui.dp(7), ui.dp(8), ui.dp(7), ui.dp(8));
             item.setSelected(current);
             LinearLayout.LayoutParams size = RideUi.weight();
             size.leftMargin = ui.dp(3);
@@ -299,7 +314,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void updateLivePanel() {
-        if (livePanel != null && page == 0 && selectedRide == null) {
+        if (livePanel != null && page == RIDES && selectedRide == null) {
             long now = SystemClock.elapsedRealtime();
             livePanel.update(TrackerService.live(now), now);
         }
@@ -343,30 +358,6 @@ public final class MainActivity extends ComponentActivity {
     private void historyPage() {
         add(trackingPanel(), 20);
         List<RideStore.Summary> history = store.history();
-        YearMonth month = YearMonth.now();
-        Year year = Year.now();
-        double monthMeters = 0;
-        double yearMeters = 0;
-        for (RideStore.Summary ride : history) {
-            var date = Instant.ofEpochMilli(ride.start()).atZone(ZoneId.of(ride.zone()));
-            if (YearMonth.from(date).equals(month)) {
-                monthMeters += ride.distance();
-            }
-            if (Year.from(date).equals(year)) {
-                yearMeters += ride.distance();
-            }
-        }
-        LinearLayout totals = ui.row();
-        totals.setBaselineAligned(false);
-        totals.addView(distanceTotal("THIS MONTH", monthMeters), RideUi.weight());
-        View divider = new View(this);
-        divider.setBackgroundColor(colours.line());
-        LinearLayout.LayoutParams dividerSize = new LinearLayout.LayoutParams(ui.dp(1), ui.dp(55));
-        dividerSize.setMargins(ui.dp(10), 0, ui.dp(15), 0);
-        totals.addView(divider, dividerSize);
-        totals.addView(distanceTotal("THIS YEAR", yearMeters), RideUi.weight());
-        add(totals, 18);
-        add(ui.hairline(), 17);
         add(section("Ride history"), 9);
         if (history.isEmpty()) {
             add(ui.text("No rides yet", 15, false, colours.muted()), 12);
@@ -391,22 +382,17 @@ public final class MainActivity extends ComponentActivity {
         }
     }
 
-    private View distanceTotal(String label, double metres) {
-        LinearLayout column = ui.column();
-        TextView caption = ui.text(label, 11, true, colours.muted());
-        caption.setLetterSpacing(.1f);
-        column.addView(caption);
-        LinearLayout amount = ui.row();
-        amount.setGravity(Gravity.BOTTOM);
-        TextView value = ui.title(String.format(Locale.getDefault(), "%.1f", metres / 1000), 36, colours.ink());
-        value.setMaxLines(1);
-        value.setAutoSizeTextTypeUniformWithConfiguration(18, 36, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-        amount.addView(value, new LinearLayout.LayoutParams(-2, ui.dp(42)));
-        TextView units = ui.text("km", 14, true, colours.muted());
-        units.setPadding(ui.dp(4), 0, 0, ui.dp(4));
-        amount.addView(units);
-        column.addView(amount);
-        return column;
+    private void statsPage() {
+        RideCalendar calendar = new RideCalendar(YearMonth.now(), store.history());
+        YearMonth displayed = calendar.visibleMonth(statsMonth);
+        boolean distance = preferences.getBoolean(STATS_DISTANCE, false);
+        add(new StatsPanel(this, ui, calendar, displayed, distance, month -> {
+            statsMonth = calendar.visibleMonth(month);
+            render(true);
+        }, kilometres -> {
+            preferences.edit().putBoolean(STATS_DISTANCE, kilometres).apply();
+            render(true);
+        }), 0);
     }
 
     private void placesPage() {
@@ -448,6 +434,12 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void settingsPage() {
+        LinearLayout version = ui.row();
+        version.setBackground(ui.shape(colours.panel(), 12, colours.line()));
+        version.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
+        version.addView(ui.text("App version", 14, true, colours.muted()), RideUi.weight());
+        version.addView(ui.text(installedVersion(), 16, true, colours.ink()));
+        add(version, 16);
         add(section("Appearance"), 6);
         int current = appearanceIndex();
         String[] labels = {"System", "Light", "Dark"};
@@ -474,6 +466,15 @@ public final class MainActivity extends ComponentActivity {
         add(ui.text("Ride playback and saved circles work offline.", 13, false, colours.muted()), 10);
         toggle("Weather from Open-Meteo", "weather", false);
         add(ui.text("Weather lookup sends the approximate ride start and date to Open-Meteo.", 13, false, colours.muted()), 10);
+    }
+
+    private String installedVersion() {
+        try {
+            String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return version == null ? "Unavailable" : version;
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return "Unavailable";
+        }
     }
 
     private int appearanceIndex() {
