@@ -72,6 +72,8 @@ public final class MainActivity extends ComponentActivity {
     private String selectedRide;
     private String exportingRide;
     private boolean openToArm;
+    private boolean resumed;
+    private GpsStandby standby;
     private String pendingArm;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private CancellationSignal mapRequest;
@@ -99,6 +101,7 @@ public final class MainActivity extends ComponentActivity {
 
     private final BroadcastReceiver statusChanges = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            syncStandby();
             if (TrackerService.LIVE_UPDATE.equals(intent.getAction())) {
                 updateLivePanel();
             } else {
@@ -116,6 +119,7 @@ public final class MainActivity extends ComponentActivity {
         getOnBackPressedDispatcher().addCallback(this, back);
         store = new RideStore(this);
         preferences = TrackerService.preferences(this);
+        standby = new GpsStandby(this, this::updateLivePanel);
         if (TrackerService.state() == Tracker.State.DISARMED) {
             store.recoverInterruptedRides();
         }
@@ -151,12 +155,38 @@ public final class MainActivity extends ComponentActivity {
     @Override
     protected void onPostResume() {
         super.onPostResume();
-        if (openToArm) {
+        resumed = true;
+        syncStandby();
+        if (pendingArm == null && !hasLocation() && !preferences.getBoolean("gpsPermissionAsked", false)) {
+            preferences.edit().putBoolean("gpsPermissionAsked", true).apply();
+            requestGpsPermission();
+        }
+        if (openToArm && hasLocation()) {
             openToArm = false;
             if (TrackerService.state() == Tracker.State.DISARMED && hasLocation() && hasNotifications()) {
                 arm(TrackerService.ARM);
             }
         }
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false;
+        standby.stop();
+        super.onPause();
+    }
+
+    private void syncStandby() {
+        if (resumed && hasLocation() && TrackerService.state() == Tracker.State.DISARMED) {
+            standby.start();
+        } else {
+            standby.stop();
+        }
+    }
+
+    private void requestGpsPermission() {
+        requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION}, MAP_PERMISSION);
     }
 
     @Override
@@ -310,29 +340,38 @@ public final class MainActivity extends ComponentActivity {
                 } else {
                     send(action);
                 }
-            }, () -> findMapLocation(true));
+            }, () -> {
+                if (hasLocation()) findMapLocation(true);
+                else requestGpsPermission();
+            });
         }
         if (livePanel.getParent() instanceof android.view.ViewGroup parent) {
             parent.removeView(livePanel);
         }
         long now = SystemClock.elapsedRealtime();
         livePanel.showArea(roughLocation);
-        livePanel.update(TrackerService.live(now), now);
+        livePanel.update(live(now), now, hasLocation());
         return livePanel;
     }
 
     private void updateLivePanel() {
         if (livePanel != null && page == RIDES && selectedRide == null) {
             long now = SystemClock.elapsedRealtime();
-            livePanel.update(TrackerService.live(now), now);
+            livePanel.update(live(now), now, hasLocation());
         }
+    }
+
+    private TrackerService.Live live(long now) {
+        TrackerService.Live current = TrackerService.live(now);
+        if (current.state() != Tracker.State.DISARMED) return current;
+        return new TrackerService.Live(current.state(), false, standby.status(), standby.fix(),
+                current.stats(), current.route());
     }
 
     private void findMapLocation(boolean prompt) {
         if (!MapLocation.permitted(this)) {
             if (prompt) {
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION}, MAP_PERMISSION);
+                requestGpsPermission();
             }
             return;
         }
@@ -746,7 +785,11 @@ public final class MainActivity extends ComponentActivity {
         }
         pendingArm = null;
         findMapLocation(false);
-        startForegroundService(new Intent(this, TrackerService.class).setAction(action));
+        Intent start = new Intent(this, TrackerService.class).setAction(action);
+        if (TrackerService.START.equals(action)) {
+            start.putExtra(TrackerService.START_FIX, standby.fix());
+        }
+        startForegroundService(start);
     }
 
     private boolean hasLocation() {
@@ -768,6 +811,8 @@ public final class MainActivity extends ComponentActivity {
     public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
         if (request == MAP_PERMISSION) {
+            syncStandby();
+            updateLivePanel();
             findMapLocation(false);
             return;
         }

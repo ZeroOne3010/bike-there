@@ -41,6 +41,7 @@ jobs:
             adb shell uiautomator dump /data/local/tmp/bike-there.xml
             adb shell cat /data/local/tmp/bike-there.xml | grep -Fq 'text="BIKE THERE"' || { adb logcat -d -b crash; exit 1; }
             adb shell cat /data/local/tmp/bike-there.xml | grep -Fq 'text="Location off"'
+            adb shell cat /data/local/tmp/bike-there.xml | grep -Fq 'text="GPS off"'
       - name: Upload test APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

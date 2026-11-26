@@ -21,7 +21,7 @@ final class LiveTrackerPanel extends LinearLayout {
     private final View signalLamp;
     private final TextView status;
     private final TextView satellites;
-    private final View locate;
+    private final TextView locate;
     private final View recenter;
     private final TextView approximate;
     private final TextView elapsed;
@@ -107,25 +107,26 @@ final class LiveTrackerPanel extends LinearLayout {
         map.area(rough);
     }
 
-    void update(TrackerService.Live live, long now) {
+    void update(TrackerService.Live live, long now, boolean precise) {
         Tracker.State state = live.state();
         GpsStatus gps = live.gps();
         boolean active = state != Tracker.State.DISARMED;
         boolean hasFix = gps.hasFix(now);
-        boolean looking = active && gps.enabled() && !hasFix;
+        boolean looking = gps.enabled() && !hasFix;
         map.update(live.fix(), hasFix, live.route());
-        locate.setVisibility(!map.hasPosition() && !active ? VISIBLE : GONE);
+        locate.setVisibility(!precise || (!map.hasPosition() && !active) ? VISIBLE : GONE);
+        setText(locate, precise ? "Find my location" : "Enable precise GPS");
         recenter.setVisibility(map.hasPosition() ? VISIBLE : GONE);
         approximate.setVisibility(map.showsApproximatePosition() ? VISIBLE : GONE);
         searching.setVisibility(looking ? VISIBLE : GONE);
         signalLamp.setVisibility(looking ? GONE : VISIBLE);
         signalLamp.setBackgroundColor(hasFix ? RideColors.SIGNAL : RideColors.TRACK_MUTED);
         setText(status, gps.label(state, now, live.manualPending()));
-        satellites.setVisibility(active && gps.enabled() ? VISIBLE : GONE);
-        if (active && gps.enabled()) {
-            setText(satellites, gps.seen() >= 0 ? String.format(Locale.getDefault(),
-                    "%d satellites seen · %d used", gps.seen(), gps.used()) : "Waiting for satellite data");
+        String signal = precise ? gps.signalLabel(now) : "GPS permission needed";
+        if (gps.enabled() && gps.seen() >= 0) {
+            signal += String.format(Locale.getDefault(), "\n%d seen · %d used", gps.seen(), gps.used());
         }
+        setText(satellites, signal);
         setText(elapsed, MainActivity.duration(live.stats().elapsedMillis()));
         setText(average, speed(live.stats().averageSpeedMps()));
         setText(maximum, speed(live.stats().topSpeedMps()));
@@ -139,7 +140,7 @@ final class LiveTrackerPanel extends LinearLayout {
 
     private String detail(TrackerService.Live live, boolean hasFix) {
         if (live.state() == Tracker.State.DISARMED) {
-            return "Auto-start waits for cycling. Manual start begins as soon as GPS is ready.";
+            return "Auto-start waits for cycling. Manual start uses the GPS lock or waits for a fix.";
         }
         if (!live.gps().enabled()) {
             return "Turn on the phone’s location to track the ride.";

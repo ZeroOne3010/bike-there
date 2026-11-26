@@ -27,6 +27,7 @@ public final class TrackerService extends Service implements LocationListener {
     static final String UPDATE = "dev.zeroone.bikethere.STATUS";
     static final String LIVE_UPDATE = "dev.zeroone.bikethere.LIVE_STATUS";
     static final String ARM = "arm";
+    static final String START_FIX = "startFix";
     static final String START = "start";
     static final String FINISH = "finish";
     static final String DISARM = "disarm";
@@ -120,6 +121,18 @@ public final class TrackerService extends Service implements LocationListener {
             } else {
                 beginListening();
             }
+            if (START.equals(action) && listening && gpsEnabled && tracker.manualPending()) {
+                Location warm = lastLocation != null ? lastLocation
+                        : androidx.core.content.IntentCompat.getParcelableExtra(intent, START_FIX, Location.class);
+                long now = SystemClock.elapsedRealtime();
+                if (GpsStandby.usable(warm, now, GpsStatus.LOCK_AGE_MS)) {
+                    Location start = new Location(warm);
+                    start.setElapsedRealtimeNanos(SystemClock.elapsedRealtimeNanos());
+                    start.setTime(System.currentTimeMillis());
+                    start.removeSpeed();
+                    onLocationChanged(start);
+                }
+            }
         } else if (FINISH.equals(action) && listening) {
             save(tracker.finish(SystemClock.elapsedRealtime(), places));
             publish();
@@ -190,10 +203,8 @@ public final class TrackerService extends Service implements LocationListener {
         if (!listening) {
             return;
         }
-        long elapsed = fix.getElapsedRealtimeNanos() / 1_000_000;
-        if (SystemClock.elapsedRealtime() - elapsed > 10_000 || !fix.hasAccuracy()
-                || !Float.isFinite(fix.getAccuracy()) || fix.getAccuracy() <= 0
-                || fix.getAccuracy() > Tracker.MAX_ACCURACY || elapsed <= lastFixAt) {
+        long elapsed = GpsStandby.elapsed(fix);
+        if (!GpsStandby.usable(fix, SystemClock.elapsedRealtime(), 10_000) || elapsed <= lastFixAt) {
             return;
         }
         Tracker.State before = tracker.state();
