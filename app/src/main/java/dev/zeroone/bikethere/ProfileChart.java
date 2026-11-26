@@ -34,7 +34,7 @@ final class ProfileChart extends View {
         this.metric = metric;
         this.colours = colours;
         trace = metric == RideProfile.Metric.SPEED ? colours.accent()
-                : colours.dark() ? colours.violet() : 0xff8248a4;
+                : colours.ink();
         pad = getResources().getDisplayMetrics().density;
         time = profile.start();
         setContentDescription(metric == RideProfile.Metric.SPEED ? "Speed profile" : "Elevation profile");

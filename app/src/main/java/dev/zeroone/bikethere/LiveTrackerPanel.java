@@ -18,6 +18,7 @@ final class LiveTrackerPanel extends LinearLayout {
     private final RideColors colours;
     private final LiveMap map;
     private final ProgressBar searching;
+    private final View signalLamp;
     private final TextView status;
     private final TextView satellites;
     private final View locate;
@@ -39,31 +40,35 @@ final class LiveTrackerPanel extends LinearLayout {
         this.dispatch = dispatch;
         setOrientation(VERTICAL);
 
-        FrameLayout hero = new FrameLayout(context);
-        hero.setBackground(ui.shape(colours.panel(), 20, colours.line()));
-        hero.setClipToOutline(true);
-        map = new LiveMap(context, colours, showMaps);
-        hero.addView(map, new FrameLayout.LayoutParams(-1, -1));
-
         LinearLayout signal = ui.row();
-        signal.setPadding(ui.dp(10), ui.dp(7), ui.dp(12), ui.dp(7));
-        signal.setBackground(ui.shape(RideColors.TRACK, 12, null));
+        signal.setPadding(ui.dp(10), ui.dp(7), ui.dp(10), ui.dp(7));
+        signal.setMinimumHeight(ui.dp(41));
+        signal.setBackgroundColor(RideColors.TRACK);
         searching = new ProgressBar(context, null, android.R.attr.progressBarStyleSmall);
         searching.setIndeterminateTintList(ColorStateList.valueOf(RideColors.SIGNAL));
         searching.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LayoutParams spin = new LayoutParams(ui.dp(18), ui.dp(18));
+        LayoutParams spin = new LayoutParams(ui.dp(15), ui.dp(15));
         spin.rightMargin = ui.dp(8);
         signal.addView(searching, spin);
-        LinearLayout notes = ui.column();
-        status = ui.text("", 14, true, RideColors.ON_TRACK);
-        satellites = ui.text("", 12, false, RideColors.ON_TRACK);
-        satellites.setPadding(0, ui.dp(3), 0, 0);
-        notes.addView(status);
-        notes.addView(satellites);
-        signal.addView(notes);
-        FrameLayout.LayoutParams signalSize = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START);
-        signalSize.setMargins(ui.dp(10), ui.dp(10), ui.dp(10), 0);
-        hero.addView(signal, signalSize);
+        signalLamp = new View(context);
+        signalLamp.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LayoutParams lamp = new LayoutParams(ui.dp(7), ui.dp(7));
+        lamp.setMargins(ui.dp(4), 0, ui.dp(12), 0);
+        signal.addView(signalLamp, lamp);
+        status = ui.text("", 13, true, RideColors.ON_TRACK);
+        androidx.core.view.ViewCompat.setAccessibilityHeading(status, true);
+        signal.addView(status, RideUi.weight());
+        satellites = ui.code("", 10, false, RideColors.TRACK_MUTED);
+        satellites.setPadding(ui.dp(8), 0, 0, 0);
+        signal.addView(satellites, new LayoutParams(0, -2, 1));
+        satellites.setGravity(Gravity.END);
+        addView(signal);
+
+        FrameLayout hero = new FrameLayout(context);
+        hero.setBackground(ui.shape(colours.panel(), 0, colours.line()));
+        hero.setPadding(ui.dp(1), 0, ui.dp(1), ui.dp(1));
+        map = new LiveMap(context, colours, showMaps);
+        hero.addView(map, new FrameLayout.LayoutParams(-1, -1));
 
         locate = ui.button("Find my location", RideColors.TRACK, RideColors.ON_TRACK, null, findMe);
         hero.addView(locate, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
@@ -73,28 +78,29 @@ final class LiveTrackerPanel extends LinearLayout {
         centreSize.bottomMargin = ui.dp(21);
         hero.addView(recenter, centreSize);
         approximate = ui.text("Approximate location", 12, true, RideColors.ON_TRACK);
-        approximate.setBackground(ui.shape(RideColors.TRACK, 10, null));
+        approximate.setBackground(ui.shape(RideColors.TRACK, 2, null));
         approximate.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6));
         FrameLayout.LayoutParams approximateSize = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         approximateSize.leftMargin = ui.dp(9);
         approximateSize.bottomMargin = ui.dp(21);
         hero.addView(approximate, approximateSize);
-        addView(hero, new LayoutParams(-1, ui.dp(296)));
+        addView(hero, new LayoutParams(-1, ui.dp(263)));
 
         LinearLayout instruments = ui.row();
         instruments.setBaselineAligned(false);
-        instruments.setPadding(ui.dp(6), ui.dp(14), ui.dp(6), ui.dp(13));
-        elapsed = addInstrument(instruments, "ELAPSED");
-        average = addInstrument(instruments, "AVG KM/H");
-        maximum = addInstrument(instruments, "MAX KM/H");
+        instruments.setPadding(0, ui.dp(10), 0, ui.dp(8));
+        elapsed = addInstrument(instruments, "ELAPSED", 42, 1.55f);
+        average = addInstrument(instruments, "AVG KM/H", 30, 1);
+        maximum = addInstrument(instruments, "MAX KM/H", 30, 1);
         addView(instruments);
         addView(ui.hairline());
 
         help = ui.text("", 14, false, colours.muted());
-        help.setPadding(0, ui.dp(11), 0, ui.dp(9));
-        addView(help);
+        help.setPadding(0, ui.dp(9), 0, 0);
         actions = ui.row();
+        actions.setPadding(0, ui.dp(10), 0, 0);
         addView(actions);
+        addView(help);
     }
 
     void showArea(Location rough) {
@@ -112,6 +118,8 @@ final class LiveTrackerPanel extends LinearLayout {
         recenter.setVisibility(map.hasPosition() ? VISIBLE : GONE);
         approximate.setVisibility(map.showsApproximatePosition() ? VISIBLE : GONE);
         searching.setVisibility(looking ? VISIBLE : GONE);
+        signalLamp.setVisibility(looking ? GONE : VISIBLE);
+        signalLamp.setBackgroundColor(hasFix ? RideColors.SIGNAL : RideColors.TRACK_MUTED);
         setText(status, gps.label(state, now, live.manualPending()));
         satellites.setVisibility(active && gps.enabled() ? VISIBLE : GONE);
         if (active && gps.enabled()) {
@@ -154,19 +162,19 @@ final class LiveTrackerPanel extends LinearLayout {
         actions.removeAllViews();
         switch (state) {
             case DISARMED -> {
-                actions.addView(ui.primary("Auto-start", () -> dispatch.accept(TrackerService.ARM)));
+                actions.addView(ui.primary("Auto-start", () -> dispatch.accept(TrackerService.ARM)), RideUi.weight());
                 addSecondary("Manual start", TrackerService.START);
             }
             case READY -> {
                 if (manualPending) {
                     actions.addView(ui.secondary("Disarm", () -> dispatch.accept(TrackerService.DISARM)));
                 } else {
-                    actions.addView(ui.primary("Manual start", () -> dispatch.accept(TrackerService.START)));
+                    actions.addView(ui.primary("Manual start", () -> dispatch.accept(TrackerService.START)), RideUi.weight());
                     addSecondary("Disarm", TrackerService.DISARM);
                 }
             }
             case RIDING, PAUSED -> {
-                actions.addView(ui.primary("Finish ride", () -> dispatch.accept(TrackerService.FINISH)));
+                actions.addView(ui.primary("Finish ride", () -> dispatch.accept(TrackerService.FINISH)), RideUi.weight());
                 addSecondary("Finish & disarm", TrackerService.DISARM);
             }
         }
@@ -178,15 +186,23 @@ final class LiveTrackerPanel extends LinearLayout {
         actions.addView(ui.secondary(title, () -> dispatch.accept(action)), size);
     }
 
-    private TextView addInstrument(LinearLayout container, String name) {
+    private TextView addInstrument(LinearLayout container, String name, int numberSize, float weight) {
+        boolean first = container.getChildCount() == 0;
+        if (!first) {
+            View divider = new View(getContext());
+            divider.setBackgroundColor(colours.line());
+            container.addView(divider, new LayoutParams(ui.dp(1), ui.dp(57)));
+        }
         LinearLayout instrument = ui.column();
-        TextView label = ui.text(name, 11, true, colours.muted());
-        label.setLetterSpacing(.07f);
+        instrument.setPadding(first ? 0 : ui.dp(10), 0, ui.dp(5), 0);
+        TextView label = ui.code(name, 10, true, colours.muted());
         instrument.addView(label);
-        TextView value = ui.title("", 29, colours.ink());
-        value.setPadding(0, ui.dp(3), 0, 0);
-        instrument.addView(value);
-        container.addView(instrument, RideUi.weight());
+        TextView value = ui.title("", numberSize, colours.ink());
+        value.setMaxLines(1);
+        value.setGravity(Gravity.BOTTOM | Gravity.START);
+        value.setAutoSizeTextTypeUniformWithConfiguration(16, numberSize, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        instrument.addView(value, new LayoutParams(-1, ui.dp(46)));
+        container.addView(instrument, new LayoutParams(0, -2, weight));
         return value;
     }
 

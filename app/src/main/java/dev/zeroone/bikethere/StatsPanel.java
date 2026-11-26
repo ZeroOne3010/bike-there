@@ -60,7 +60,7 @@ final class StatsPanel extends LinearLayout {
         LinearLayout row = ui.row();
         row.setBaselineAligned(false);
         row.setPadding(ui.dp(14), ui.dp(13), ui.dp(14), ui.dp(13));
-        row.setBackground(ui.shape(colours.panel(), 15, colours.line()));
+        row.setBackground(ui.shape(colours.panel(), 0, colours.line()));
         row.addView(total("MONTH", calendar.month(month)), RideUi.weight());
         View divider = new View(getContext());
         divider.setBackgroundColor(colours.line());
@@ -74,7 +74,7 @@ final class StatsPanel extends LinearLayout {
 
     private View total(String label, RideCalendar.Total total) {
         LinearLayout column = ui.column();
-        TextView caption = ui.text(label, 12, true, colours.muted());
+        TextView caption = ui.code(label, 11, true, colours.muted());
         caption.setLetterSpacing(.075f);
         column.addView(caption);
         TextView kilometres = ui.title(getString(R.string.stats_km, distance.format(total.metres() / 1000)),
@@ -91,7 +91,7 @@ final class StatsPanel extends LinearLayout {
         row.addView(monthButton("‹", "Previous month", calendar.canGoBack(month),
                 () -> changeMonth.accept(month.minusMonths(1))), new LayoutParams(ui.dp(48), -2));
         String label = month.format(DateTimeFormatter.ofPattern("LLLL uuuu", locale));
-        TextView title = ui.title(label, 27, colours.ink());
+        TextView title = ui.text(label, 19, true, colours.ink());
         title.setGravity(Gravity.CENTER);
         title.setMaxLines(2);
         ViewCompat.setAccessibilityHeading(title, true);
@@ -124,7 +124,7 @@ final class StatsPanel extends LinearLayout {
     }
 
     private Button modeButton(String text, boolean selected, Runnable click) {
-        Button button = selected ? ui.button(text, colours.violet(), colours.violetInk(), null, click)
+        Button button = selected ? ui.button(text, colours.ink(), colours.paper(), null, click)
                 : ui.secondary(text, click);
         button.setSelected(selected);
         return button;
@@ -154,8 +154,10 @@ final class StatsPanel extends LinearLayout {
                         ? dayCell(month.atDay(number)) : new View(getContext());
                 row.addView(cell, cellSize(51));
             }
+            grid.addView(ui.hairline());
             grid.addView(row);
         }
+        grid.addView(ui.hairline());
         return grid;
     }
 
@@ -164,10 +166,12 @@ final class StatsPanel extends LinearLayout {
         boolean recorded = total.rides() > 0;
         LinearLayout cell = ui.column();
         cell.setGravity(Gravity.CENTER);
-        cell.setBackground(ui.shape(recorded ? colours.violet() : colours.panel(), 7, null));
+        if (recorded) {
+            cell.setBackground(ui.shape(colours.panel(), 0, colours.line()));
+        }
         cell.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        int ink = recorded ? colours.violetInk() : colours.muted();
-        TextView date = ui.text(counts.format(day.getDayOfMonth()), 12, false, ink);
+        int ink = recorded ? colours.accent() : colours.muted();
+        TextView date = ui.code(counts.format(day.getDayOfMonth()), 11, false, colours.muted());
         date.setGravity(Gravity.CENTER);
         date.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         cell.addView(date);

@@ -56,18 +56,18 @@ final class PlaceMap extends SlippyMap {
         float x = screenX(mapX(lon));
         float y = screenY(mapY(lat));
         float radius = circleRadius();
-        int violet = colours.dark() ? colours.violet() : colours.accent();
+        int mark = colours.accent();
         ring.setStyle(Paint.Style.FILL);
-        ring.setColor((violet & 0x00ffffff) | 0x37000000);
+        ring.setColor((mark & 0x00ffffff) | 0x37000000);
         canvas.drawCircle(x, y, radius, ring);
         ring.setStyle(Paint.Style.STROKE);
         ring.setStrokeWidth(2.5f * density);
-        ring.setColor(violet);
+        ring.setColor(mark);
         canvas.drawCircle(x, y, radius, ring);
         ring.setStyle(Paint.Style.FILL);
         ring.setColor(Color.WHITE);
         canvas.drawCircle(x, y, 8 * density, ring);
-        ring.setColor(violet);
+        ring.setColor(mark);
         canvas.drawCircle(x, y, 5 * density, ring);
     }
 

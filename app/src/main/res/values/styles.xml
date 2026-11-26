@@ -17,12 +17,12 @@
     <string name="weather_loading">Looking up weather…</string>
     <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#463071</item>
-        <item name="android:windowBackground">#F6F0E6</item>
+        <item name="android:colorAccent">#46570F</item>
+        <item name="android:windowBackground">#EFEEE6</item>
     </style>
     <style name="AppThemeDark" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#DAFA5E</item>
-        <item name="android:windowBackground">#17151F</item>
+        <item name="android:windowBackground">#191A18</item>
     </style>
 </resources>

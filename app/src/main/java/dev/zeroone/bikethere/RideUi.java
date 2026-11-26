@@ -100,6 +100,12 @@ final class RideUi {
         return label;
     }
 
+    TextView code(String text, int size, boolean bold, int color) {
+        TextView label = text(text, size, bold, color);
+        label.setTypeface(Typeface.MONOSPACE, bold ? Typeface.BOLD : Typeface.NORMAL);
+        return label;
+    }
+
     GradientDrawable shape(int fill, int radius, Integer stroke) {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(fill);
@@ -122,16 +128,16 @@ final class RideUi {
         button.setMinimumHeight(dp(48));
         button.setMinimumWidth(0);
         button.setMinWidth(0);
-        button.setPadding(dp(16), dp(8), dp(16), dp(8));
+        button.setPadding(dp(12), dp(7), dp(12), dp(7));
         button.setStateListAnimator(null);
-        button.setBackground(new RippleDrawable(ColorStateList.valueOf(0x2e8d719e),
-                shape(fill, 24, edge), shape(Color.WHITE, 24, null)));
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(colours.dark() ? 0x36ffffff : 0x2d23251d),
+                shape(fill, 2, edge), shape(Color.WHITE, 2, null)));
         button.setOnClickListener(view -> click.run());
         return button;
     }
 
     Button primary(String text, Runnable click) {
-        return button(text, colours.accent(), colours.onAccent(), null, click);
+        return button(text, RideColors.SIGNAL, RideColors.TRACK, colours.dark() ? null : colours.accent(), click);
     }
 
     Button secondary(String text, Runnable click) {

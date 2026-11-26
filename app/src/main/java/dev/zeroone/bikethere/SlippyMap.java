@@ -38,9 +38,9 @@ class SlippyMap extends View {
     private final RectF rect = new RectF();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final ColorMatrixColorFilter nightTiles = new ColorMatrixColorFilter(new ColorMatrix(new float[]{
-            -.20f, -.33f, -.07f, 0, 192,
+            -.20f, -.33f, -.07f, 0, 187,
+            -.20f, -.33f, -.07f, 0, 187,
             -.20f, -.33f, -.07f, 0, 178,
-            -.20f, -.33f, -.07f, 0, 206,
             0, 0, 0, 1, 0
     }));
     private final Handler main = new Handler(Looper.getMainLooper());

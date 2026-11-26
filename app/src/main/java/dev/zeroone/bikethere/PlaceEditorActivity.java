@@ -83,7 +83,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
         ui.edgeToEdge(this, root);
         LinearLayout header = ui.row();
         header.setPadding(ui.dp(20), ui.dp(7), ui.dp(16), ui.dp(9));
-        header.addView(ui.title(existing == null ? "New place" : "Edit place", 38, colours.ink()), RideUi.weight());
+        header.addView(ui.text(existing == null ? "New place" : "Edit place", 25, true, colours.ink()), RideUi.weight());
         header.addView(ui.secondary("Cancel", this::finish));
         root.addView(header);
         root.addView(ui.hairline());
@@ -106,7 +106,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
         name.setTextColor(colours.ink());
         name.setHintTextColor(colours.muted());
         name.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8));
-        name.setBackground(ui.shape(colours.panel(), 12, colours.line()));
+        name.setBackground(ui.shape(colours.panel(), 2, colours.line()));
         LinearLayout.LayoutParams nameSize = new LinearLayout.LayoutParams(-1, ui.dp(48));
         nameSize.setMargins(0, ui.dp(6), 0, ui.dp(15));
         form.addView(name, nameSize);
@@ -119,7 +119,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
                     selection++;
                     updatePositionHint();
                 });
-        map.setBackground(ui.shape(colours.panel(), 16, colours.line()));
+        map.setBackground(ui.shape(colours.panel(), 2, colours.line()));
         map.setClipToOutline(true);
         LinearLayout.LayoutParams mapSize = new LinearLayout.LayoutParams(-1, ui.dp(312));
         mapSize.setMargins(0, ui.dp(8), 0, ui.dp(6));
@@ -152,7 +152,7 @@ public final class PlaceEditorActivity extends ComponentActivity {
         form.addView(actions, actionSize);
 
         LinearLayout radiusRow = ui.row();
-        radiusRow.addView(ui.title("Arrival radius", 24, colours.ink()), RideUi.weight());
+        radiusRow.addView(ui.text("Arrival radius", 18, true, colours.ink()), RideUi.weight());
         TextView size = ui.title(radiusLabel(), 25, colours.accent());
         radiusRow.addView(size);
         form.addView(radiusRow);

@@ -204,7 +204,7 @@ public final class MainActivity extends ComponentActivity {
         scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         content = ui.column();
-        content.setPadding(ui.dp(19), ui.dp(12), ui.dp(19), ui.dp(26));
+        content.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(23));
         scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -227,7 +227,8 @@ public final class MainActivity extends ComponentActivity {
 
     private LinearLayout header() {
         LinearLayout header = ui.row();
-        header.setPadding(ui.dp(19), ui.dp(5), ui.dp(18), ui.dp(5));
+        header.setPadding(ui.dp(16), ui.dp(7), ui.dp(16), ui.dp(7));
+        header.setMinimumHeight(ui.dp(55));
         if (selectedRide != null) {
             header.addView(ui.secondary("← Rides", this::closeRide));
         } else {
@@ -237,12 +238,12 @@ public final class MainActivity extends ComponentActivity {
                 case STATS -> "Stats";
                 default -> "BIKE THERE";
             };
-            TextView heading = ui.title(title, page == RIDES ? 40 : 35, colours.ink());
+            TextView heading = page == RIDES ? ui.title(title, 34, colours.ink())
+                    : ui.text(title, 24, true, colours.ink());
             ViewCompat.setAccessibilityHeading(heading, true);
             header.addView(heading, RideUi.weight());
             if (page != RIDES && TrackerService.state() != Tracker.State.DISARMED) {
-                header.addView(ui.button("Tracker", colours.violet(), colours.violetInk(),
-                        null, () -> {
+                header.addView(ui.secondary("Tracker", () -> {
                             page = RIDES;
                             render(false);
                             findMapLocation(false);
@@ -254,15 +255,16 @@ public final class MainActivity extends ComponentActivity {
 
     private LinearLayout navigation() {
         LinearLayout bar = ui.row();
-        bar.setPadding(ui.dp(16), ui.dp(7), ui.dp(16), ui.dp(7));
+        bar.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(3));
+        bar.setBaselineAligned(false);
         String[] tabs = {"Rides", "Stats", "Places", "Settings"};
         int[] pages = {RIDES, STATS, PLACES, SETTINGS};
         int[] icons = {R.drawable.tab_rides, R.drawable.tab_stats, R.drawable.tab_places, R.drawable.tab_settings};
         for (int i = 0; i < tabs.length; i++) {
             int tab = pages[i];
             boolean current = tab == page;
-            int foreground = current ? colours.violetInk() : colours.muted();
-            Button item = ui.button(tabs[i], current ? colours.violet() : Color.TRANSPARENT,
+            int foreground = current ? colours.ink() : colours.muted();
+            Button item = ui.button(tabs[i], current ? colours.panel() : Color.TRANSPARENT,
                     foreground, null, () -> {
                         page = tab;
                         render(false);
@@ -272,16 +274,22 @@ public final class MainActivity extends ComponentActivity {
                     });
             var icon = getDrawable(icons[i]).mutate();
             icon.setTint(foreground);
-            icon.setBounds(0, 0, ui.dp(20), ui.dp(20));
+            icon.setBounds(0, 0, ui.dp(18), ui.dp(18));
             item.setCompoundDrawables(null, icon, null, null);
             item.setCompoundDrawablePadding(ui.dp(3));
             item.setTextSize(12);
-            item.setPadding(ui.dp(7), ui.dp(8), ui.dp(7), ui.dp(8));
+            item.setPadding(ui.dp(3), ui.dp(7), ui.dp(3), ui.dp(6));
             item.setSelected(current);
+
+            LinearLayout slot = ui.column();
+            View indicator = new View(this);
+            indicator.setBackgroundColor(current ? colours.accent() : Color.TRANSPARENT);
+            slot.addView(indicator, new LinearLayout.LayoutParams(-1, ui.dp(2)));
+            slot.addView(item, new LinearLayout.LayoutParams(-1, -2));
             LinearLayout.LayoutParams size = RideUi.weight();
-            size.leftMargin = ui.dp(3);
-            size.rightMargin = ui.dp(3);
-            bar.addView(item, size);
+            size.leftMargin = ui.dp(2);
+            size.rightMargin = ui.dp(2);
+            bar.addView(slot, size);
         }
         return bar;
     }
@@ -356,30 +364,61 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private void historyPage() {
-        add(trackingPanel(), 20);
+        add(trackingPanel(), 23);
         List<RideStore.Summary> history = store.history();
-        add(section("Ride history"), 9);
+        add(section("Ride log"), 8);
+        content.addView(ui.hairline());
         if (history.isEmpty()) {
-            add(ui.text("No rides yet", 15, false, colours.muted()), 12);
+            TextView empty = ui.text("No rides yet", 14, false, colours.muted());
+            empty.setPadding(0, ui.dp(12), 0, 0);
+            add(empty, 12);
         }
         for (RideStore.Summary ride : history.subList(0, Math.min(historyLimit, history.size()))) {
-            String details = date(ride) + "  ·  " + km(ride.distance());
-            if (ride.weather() != null) {
-                details += "\n" + ride.weather().label();
-            }
-            content.addView(listEntry(ride.title(), details, () -> {
-                selectedRide = ride.id();
-                playbackOffset = 0;
-                render(false);
-            }));
+            content.addView(logEntry(ride));
             content.addView(ui.hairline());
         }
         if (history.size() > historyLimit) {
-            add(ui.secondary("Show older rides", () -> {
+            Button more = ui.secondary("Show older rides", () -> {
                 historyLimit += 40;
                 render(true);
-            }), 10);
+            });
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2);
+            size.topMargin = ui.dp(10);
+            more.setLayoutParams(size);
+            add(more, 10);
         }
+    }
+
+    private View logEntry(RideStore.Summary ride) {
+        var started = Instant.ofEpochMilli(ride.start()).atZone(ZoneId.of(ride.zone()));
+        LinearLayout row = actionRow(() -> {
+            selectedRide = ride.id();
+            playbackOffset = 0;
+            render(false);
+        });
+        row.setGravity(Gravity.TOP);
+        LinearLayout stamp = ui.column();
+        stamp.addView(ui.code(started.format(DateTimeFormatter.ofPattern("dd")), 17, true, colours.ink()));
+        TextView month = ui.code(started.format(DateTimeFormatter.ofPattern("MMM uuuu")), 10, false,
+                colours.muted());
+        month.setPadding(0, ui.dp(4), 0, 0);
+        stamp.addView(month);
+        row.addView(stamp, new LinearLayout.LayoutParams(ui.dp(76), -2));
+
+        LinearLayout labels = ui.column();
+        labels.addView(ui.text(ride.title(), 15, true, colours.ink()));
+        String detail = started.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT));
+        if (ride.weather() != null) {
+            detail += " · " + ride.weather().label();
+        }
+        TextView note = ui.text(detail, 12, false, colours.muted());
+        note.setPadding(0, ui.dp(4), 0, 0);
+        labels.addView(note);
+        row.addView(labels, RideUi.weight());
+        TextView distance = ui.title(km(ride.distance()), 19, colours.ink());
+        distance.setPadding(ui.dp(8), 0, 0, 0);
+        row.addView(distance);
+        return row;
     }
 
     private void statsPage() {
@@ -414,13 +453,9 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private View listEntry(String title, String detail, Runnable open) {
-        LinearLayout row = ui.row();
-        row.setPadding(ui.dp(4), ui.dp(13), ui.dp(5), ui.dp(13));
-        row.setMinimumHeight(ui.dp(58));
-        row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x268d719e), null,
-                ui.shape(Color.WHITE, 10, null)));
+        LinearLayout row = actionRow(open);
         LinearLayout labels = ui.column();
-        labels.addView(ui.text(title, 18, true, colours.ink()));
+        labels.addView(ui.text(title, 15, true, colours.ink()));
         TextView subtitle = ui.text(detail, 13, false, colours.muted());
         subtitle.setPadding(0, ui.dp(5), 0, 0);
         labels.addView(subtitle);
@@ -428,6 +463,15 @@ public final class MainActivity extends ComponentActivity {
         TextView arrow = ui.text("›", 28, false, colours.accent());
         arrow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         row.addView(arrow);
+        return row;
+    }
+
+    private LinearLayout actionRow(Runnable open) {
+        LinearLayout row = ui.row();
+        row.setPadding(0, ui.dp(11), ui.dp(3), ui.dp(11));
+        row.setMinimumHeight(ui.dp(52));
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(colours.dark() ? 0x2cffffff : 0x25232620),
+                null, ui.shape(Color.WHITE, 0, null)));
         row.setOnClickListener(view -> open.run());
         row.setFocusable(true);
         return row;
@@ -435,11 +479,11 @@ public final class MainActivity extends ComponentActivity {
 
     private void settingsPage() {
         LinearLayout version = ui.row();
-        version.setBackground(ui.shape(colours.panel(), 12, colours.line()));
-        version.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
-        version.addView(ui.text("App version", 14, true, colours.muted()), RideUi.weight());
-        version.addView(ui.text(installedVersion(), 16, true, colours.ink()));
-        add(version, 16);
+        version.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        version.addView(ui.text("App version", 14, false, colours.ink()), RideUi.weight());
+        version.addView(ui.code(installedVersion(), 13, false, colours.muted()));
+        add(version, 0);
+        add(ui.hairline(), 15);
         add(section("Appearance"), 6);
         int current = appearanceIndex();
         String[] labels = {"System", "Light", "Dark"};
@@ -447,20 +491,20 @@ public final class MainActivity extends ComponentActivity {
         for (int i = 0; i < labels.length; i++) {
             int mode = i;
             Button button = current == i
-                    ? ui.button(labels[i], colours.violet(), colours.violetInk(), null, () -> {})
+                    ? ui.button(labels[i], colours.ink(), colours.paper(), null, () -> {})
                     : ui.secondary(labels[i], () -> changeAppearance(mode));
             button.setSelected(current == i);
             LinearLayout.LayoutParams size = RideUi.weight();
             size.rightMargin = i < labels.length - 1 ? ui.dp(7) : 0;
             modes.addView(button, size);
         }
-        add(modes, 20);
-        add(ui.hairline(), 16);
+        add(modes, 15);
+        add(ui.hairline(), 13);
         add(section("Tracking"), 5);
         toggle("Enable auto-start when opening Bike There", "openToArm", true);
         int timeout = preferences.getInt(TrackerService.SET_TIMEOUT, TrackerService.DEFAULT_TIMEOUT);
         content.addView(listEntry("Auto-start timeout", getString(R.string.timeout_minutes, timeout), () -> editTimeout(timeout)));
-        add(ui.hairline(), 16);
+        add(ui.hairline(), 13);
         add(section("Maps & weather"), 5);
         toggle("OpenStreetMap tiles", "maps", true);
         add(ui.text("Ride playback and saved circles work offline.", 13, false, colours.muted()), 10);
@@ -492,7 +536,7 @@ public final class MainActivity extends ComponentActivity {
     }
 
     private TextView section(String label) {
-        TextView title = ui.title(label, 29, colours.ink());
+        TextView title = ui.text(label, 19, true, colours.ink());
         ViewCompat.setAccessibilityHeading(title, true);
         return title;
     }
@@ -533,14 +577,14 @@ public final class MainActivity extends ComponentActivity {
             return;
         }
         List<Ride.Point> route = store.route(ride.id());
-        add(ui.title(ride.title(), 37, colours.ink()), 8);
+        add(ui.text(ride.title(), 25, true, colours.ink()), 7);
         add(ui.text(date(ride), 14, false, colours.muted()), 12);
         LinearLayout summary = ui.column();
-        summary.setPadding(ui.dp(15), ui.dp(13), ui.dp(15), ui.dp(13));
-        summary.setBackground(ui.shape(colours.violet(), 15, null));
-        summary.addView(ui.title(km(ride.distance()), 34, colours.violetInk()));
+        summary.setPadding(ui.dp(11), ui.dp(8), ui.dp(11), ui.dp(9));
+        summary.setBackground(ui.shape(colours.panel(), 0, colours.line()));
+        summary.addView(ui.title(km(ride.distance()), 36, colours.ink()));
         TextView duration = ui.text(getString(R.string.ride_duration,
-                duration(ride.moving()), duration(ride.elapsed())), 14, true, colours.violetInk());
+                duration(ride.moving()), duration(ride.elapsed())), 13, false, colours.muted());
         duration.setPadding(0, ui.dp(5), 0, 0);
         summary.addView(duration);
         add(summary, 14);
@@ -576,7 +620,7 @@ public final class MainActivity extends ComponentActivity {
         mapHeader.addView(section("Route"), RideUi.weight());
         mapHeader.addView(ui.secondary("Fit route", map::fit));
         add(mapHeader, 7);
-        map.setBackground(ui.shape(colours.panel(), 16, colours.line()));
+        map.setBackground(ui.shape(colours.panel(), 1, colours.line()));
         map.setClipToOutline(true);
         content.addView(map, new LinearLayout.LayoutParams(-1, ui.dp(300)));
 
@@ -596,7 +640,7 @@ public final class MainActivity extends ComponentActivity {
         RideProfile data = new RideProfile(route);
 
         TextView speedLabel = ui.title("", 22, colours.accent());
-        TextView elevationLabel = ui.title("", 22, colours.dark() ? colours.violet() : colours.accent());
+        TextView elevationLabel = ui.title("", 22, colours.ink());
         ProfileChart speedChart = new ProfileChart(this, data, RideProfile.Metric.SPEED, colours);
         ProfileChart altitudeChart = new ProfileChart(this, data, RideProfile.Metric.ELEVATION, colours);
         java.util.function.LongConsumer scrubTo = epoch -> {
