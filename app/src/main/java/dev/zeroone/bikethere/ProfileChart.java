@@ -14,6 +14,7 @@ import java.util.function.LongConsumer;
 final class ProfileChart extends View {
     private final RideProfile profile;
     private final RideProfile.Metric metric;
+    private final Units units;
     private final RideColors colours;
     private final int trace;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -28,10 +29,11 @@ final class ProfileChart extends View {
     private long time;
 
     ProfileChart(Context context, RideProfile profile, RideProfile.Metric metric,
-                 RideColors colours) {
+                 RideColors colours, Units units) {
         super(context);
         this.profile = profile;
         this.metric = metric;
+        this.units = units;
         this.colours = colours;
         trace = metric == RideProfile.Metric.SPEED ? colours.accent()
                 : colours.ink();
@@ -39,7 +41,7 @@ final class ProfileChart extends View {
         time = profile.start();
         setContentDescription(metric == RideProfile.Metric.SPEED ? "Speed profile" : "Elevation profile");
         for (int i = 0; i < profile.size(); i++) {
-            double value = profile.value(metric, i);
+            double value = displayValue(profile.value(metric, i));
             if (Double.isFinite(value)) {
                 low = Math.min(low, value);
                 high = Math.max(high, value);
@@ -73,7 +75,7 @@ final class ProfileChart extends View {
         boolean open = false;
         float lastX = 0;
         for (int i = 0; i < profile.size(); i++) {
-            double value = profile.value(metric, i);
+            double value = displayValue(profile.value(metric, i));
             if (profile.segmentStart(i) || !Double.isFinite(value)) {
                 if (open) {
                     area.lineTo(lastX, floor());
@@ -131,7 +133,7 @@ final class ProfileChart extends View {
         paint.setStrokeWidth(pad);
         float x = x(time);
         canvas.drawLine(x, 8 * pad, x, floor() + 4 * pad, paint);
-        double value = profile.valueAt(metric, time);
+        double value = displayValue(profile.valueAt(metric, time));
         if (Double.isFinite(value)) {
             paint.setColor(colours.paper());
             canvas.drawCircle(x, y(value), 5.5f * pad, paint);
@@ -175,6 +177,10 @@ final class ProfileChart extends View {
 
     private float y(double value) {
         return (float) (floor() - (floor() - 12 * pad) * (value - low) / (high - low));
+    }
+
+    private double displayValue(double value) {
+        return metric == RideProfile.Metric.SPEED ? units.speed(value) : units.height(value);
     }
 
     private float floor() {

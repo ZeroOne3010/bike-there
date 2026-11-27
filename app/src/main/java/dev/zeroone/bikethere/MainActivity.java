@@ -65,6 +65,7 @@ public final class MainActivity extends ComponentActivity {
     private LinearLayout content;
     private RideUi ui;
     private RideColors colours;
+    private Units units;
     private long playbackOffset;
     private ScrollView scroll;
     private int page = TRACKER;
@@ -122,6 +123,7 @@ public final class MainActivity extends ComponentActivity {
         getOnBackPressedDispatcher().addCallback(this, back);
         store = new RideStore(this);
         preferences = TrackerService.preferences(this);
+        units = getUnits();
         standby = new GpsStandby(this, this::updateLivePanel);
         if (TrackerService.state() == Tracker.State.DISARMED) {
             store.recoverInterruptedRides();
@@ -351,13 +353,13 @@ public final class MainActivity extends ComponentActivity {
         TextView label = content.findViewWithTag("rideWeather");
         RideStore.Summary ride = entry(selectedRide);
         if (label != null && ride != null && ride.weather() != null) {
-            label.setText(getString(R.string.ride_weather, ride.weather().label()));
+            label.setText(getString(R.string.ride_weather, ride.weather().label(units)));
         }
     }
 
     private LiveTrackerPanel trackingPanel() {
         if (livePanel == null) {
-            livePanel = new LiveTrackerPanel(this, ui, preferences.getBoolean("maps", true), action -> {
+            livePanel = new LiveTrackerPanel(this, ui, units, preferences.getBoolean("maps", true), action -> {
                 if (TrackerService.ARM.equals(action) || TrackerService.START.equals(action)) {
                     arm(action);
                 } else {
@@ -469,13 +471,13 @@ public final class MainActivity extends ComponentActivity {
         labels.addView(ui.text(ride.title(), 15, true, colours.ink()));
         String detail = started.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT));
         if (ride.weather() != null) {
-            detail += " · " + ride.weather().label();
+            detail += " · " + ride.weather().label(units);
         }
         TextView note = ui.text(detail, 12, false, colours.muted());
         note.setPadding(0, ui.dp(4), 0, 0);
         labels.addView(note);
         row.addView(labels, RideUi.weight());
-        TextView distance = ui.title(km(ride.distance()), 19, colours.ink());
+        TextView distance = ui.title(units.distanceLabel(ride.distance()), 19, colours.ink());
         distance.setPadding(ui.dp(8), 0, 0, 0);
         row.addView(distance);
         return row;
@@ -485,11 +487,11 @@ public final class MainActivity extends ComponentActivity {
         RideCalendar calendar = new RideCalendar(YearMonth.now(), store.history());
         YearMonth displayed = calendar.visibleMonth(statsMonth);
         boolean distance = preferences.getBoolean(STATS_DISTANCE, false);
-        add(new StatsPanel(this, ui, calendar, displayed, distance, month -> {
+        add(new StatsPanel(this, ui, calendar, displayed, units, distance, month -> {
             statsMonth = calendar.visibleMonth(month);
             render(true);
-        }, kilometres -> {
-            preferences.edit().putBoolean(STATS_DISTANCE, kilometres).apply();
+        }, distanceMode -> {
+            preferences.edit().putBoolean(STATS_DISTANCE, distanceMode).apply();
             render(true);
         }), 0);
     }
@@ -502,7 +504,8 @@ public final class MainActivity extends ComponentActivity {
             add(ui.text("No saved places", 15, false, colours.muted()), 12);
         }
         for (Tracker.Place place : places) {
-            content.addView(listEntry(place.name(), getString(R.string.place_radius, place.radius()),
+            content.addView(listEntry(place.name(), getString(R.string.place_radius,
+                            units.heightLabel(place.radius()), Coordinates.label(place.lat(), place.lon())),
                     () -> openPlaceEditor(place.id())));
             content.addView(ui.hairline());
         }
@@ -564,6 +567,9 @@ public final class MainActivity extends ComponentActivity {
             modes.addView(button, size);
         }
         add(modes, 15);
+        String unitChoice = preferences.getString(Units.PREFERENCE, "system");
+        String unitDetail = "system".equals(unitChoice) ? "System · " + units.label : units.label;
+        content.addView(listEntry("Units", unitDetail, this::editUnits));
         add(ui.hairline(), 13);
         add(section("Tracking"), 5);
         toggle("Enable auto-start when opening Bike There", "openToArm", true);
@@ -602,6 +608,25 @@ public final class MainActivity extends ComponentActivity {
         String[] choices = {"system", "light", "dark"};
         preferences.edit().putString(RideUi.APPEARANCE, choices[mode]).apply();
         recreate();
+    }
+
+    private Units getUnits() {
+        return Units.resolve(preferences.getString(Units.PREFERENCE, "system"),
+                getResources().getConfiguration().getLocales().get(0));
+    }
+
+    private void editUnits() {
+        String[] choices = {"system", "metric", "imperial"};
+        String[] labels = {"System", "Metric", "Imperial"};
+        int selected = java.util.List.of(choices).indexOf(preferences.getString(Units.PREFERENCE, "system"));
+        new AlertDialog.Builder(this).setTitle("Units")
+                .setSingleChoiceItems(labels, selected, (dialog, which) -> {
+                    preferences.edit().putString(Units.PREFERENCE, choices[which]).apply();
+                    units = getUnits();
+                    livePanel = null;
+                    dialog.dismiss();
+                    render(true);
+                }).setNegativeButton("Cancel", null).show();
     }
 
     private TextView section(String label) {
@@ -651,7 +676,7 @@ public final class MainActivity extends ComponentActivity {
         LinearLayout summary = ui.column();
         summary.setPadding(ui.dp(11), ui.dp(8), ui.dp(11), ui.dp(9));
         summary.setBackground(ui.shape(colours.panel(), 0, colours.line()));
-        summary.addView(ui.title(km(ride.distance()), 36, colours.ink()));
+        summary.addView(ui.title(units.distanceLabel(ride.distance()), 36, colours.ink()));
         TextView duration = ui.text(getString(R.string.ride_duration,
                 duration(ride.moving()), duration(ride.elapsed())), 13, false, colours.muted());
         duration.setPadding(0, ui.dp(5), 0, 0);
@@ -680,7 +705,7 @@ public final class MainActivity extends ComponentActivity {
 
     private String weatherText(RideStore.Summary ride) {
         return ride != null && ride.weather() != null
-                ? getString(R.string.ride_weather, ride.weather().label()) : getString(R.string.weather_unavailable);
+                ? getString(R.string.ride_weather, ride.weather().label(units)) : getString(R.string.weather_unavailable);
     }
 
     private void showPlayback(RideStore.Summary ride, List<Ride.Point> route) {
@@ -714,8 +739,8 @@ public final class MainActivity extends ComponentActivity {
 
         TextView speedLabel = ui.title("", 22, colours.accent());
         TextView elevationLabel = ui.title("", 22, colours.ink());
-        ProfileChart speedChart = new ProfileChart(this, data, RideProfile.Metric.SPEED, colours);
-        ProfileChart altitudeChart = new ProfileChart(this, data, RideProfile.Metric.ELEVATION, colours);
+        ProfileChart speedChart = new ProfileChart(this, data, RideProfile.Metric.SPEED, colours, units);
+        ProfileChart altitudeChart = new ProfileChart(this, data, RideProfile.Metric.ELEVATION, colours, units);
         java.util.function.LongConsumer scrubTo = epoch -> {
             long offset = epoch - data.start();
             slider.setProgress((int) Math.round(2000.0 * offset / Math.max(1, ride.elapsed())));
@@ -772,15 +797,13 @@ public final class MainActivity extends ComponentActivity {
         String displayTime = getString(R.string.ride_playback_time, duration(offset), duration(data.end() - data.start()));
         position.setText(displayTime);
         ViewCompat.setStateDescription(slider, displayTime);
-        speed.setText(metric(data.valueAt(RideProfile.Metric.SPEED, time), R.string.profile_speed));
-        elevation.setText(metric(data.valueAt(RideProfile.Metric.ELEVATION, time), R.string.profile_elevation));
-    }
-
-    private String metric(double value, int units) {
-        if (!Double.isFinite(value)) {
-            return getString(R.string.profile_missing);
-        }
-        return getString(units, value);
+        double speedMps = data.valueAt(RideProfile.Metric.SPEED, time);
+        double elevationMetres = data.valueAt(RideProfile.Metric.ELEVATION, time);
+        speed.setText(Double.isFinite(speedMps)
+                ? getString(R.string.profile_speed, units.speed(speedMps), units.speedUnit)
+                : getString(R.string.profile_missing));
+        elevation.setText(Double.isFinite(elevationMetres) ? units.heightLabel(elevationMetres)
+                : getString(R.string.profile_missing));
     }
 
     private RideStore.Summary entry(String id) {
@@ -947,10 +970,6 @@ public final class MainActivity extends ComponentActivity {
 
     private void toast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-    }
-
-    private static String km(double metres) {
-        return String.format(Locale.getDefault(), "%.1f km", metres / 1000);
     }
 
     private static String date(RideStore.Summary ride) {

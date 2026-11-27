@@ -20,10 +20,10 @@ import java.util.concurrent.Executors;
 
 final class Weather {
     record Conditions(double temperature, double wind, int direction) {
-        String label() {
+        String label(Units units) {
             String[] bearings = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
             String bearing = bearings[Math.floorMod((int) Math.round(direction / 45.0), 8)];
-            return String.format(Locale.getDefault(), "%.0f °C  ·  %s wind %.1f m/s", temperature, bearing, wind);
+            return units.weather(temperature, wind, bearing);
         }
     }
 

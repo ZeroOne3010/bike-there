@@ -17,7 +17,7 @@ final class RideProfile {
         double[] window = new double[5];
         for (int i = 0; i < route.size(); i++) {
             elevation[i] = filteredElevation(i, window);
-            speed[i] = speed(i) * 3.6;
+            speed[i] = speed(i);
         }
     }
 

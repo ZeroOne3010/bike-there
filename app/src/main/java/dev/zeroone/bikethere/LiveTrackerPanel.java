@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 final class LiveTrackerPanel extends LinearLayout {
     private final RideUi ui;
     private final RideColors colours;
+    private final Units units;
     private final LiveMap map;
     private final ProgressBar searching;
     private final View signalLamp;
@@ -33,10 +34,11 @@ final class LiveTrackerPanel extends LinearLayout {
     private Tracker.State controlsFor;
     private boolean controlsManual;
 
-    LiveTrackerPanel(Context context, RideUi ui, boolean showMaps, Consumer<String> dispatch, Runnable findMe) {
+    LiveTrackerPanel(Context context, RideUi ui, Units units, boolean showMaps, Consumer<String> dispatch, Runnable findMe) {
         super(context);
         this.ui = ui;
         this.colours = ui.colours;
+        this.units = units;
         this.dispatch = dispatch;
         setOrientation(VERTICAL);
 
@@ -90,8 +92,8 @@ final class LiveTrackerPanel extends LinearLayout {
         instruments.setBaselineAligned(false);
         instruments.setPadding(0, ui.dp(10), 0, ui.dp(8));
         elapsed = addInstrument(instruments, "ELAPSED", 42, 1.55f);
-        average = addInstrument(instruments, "AVG KM/H", 30, 1);
-        distance = addInstrument(instruments, "DISTANCE KM", 30, 1);
+        average = addInstrument(instruments, "AVG " + units.speedUnit.toUpperCase(Locale.ROOT), 30, 1);
+        distance = addInstrument(instruments, "DISTANCE " + units.distanceUnit.toUpperCase(Locale.ROOT), 30, 1);
         addView(instruments);
         addView(ui.hairline());
 
@@ -128,8 +130,9 @@ final class LiveTrackerPanel extends LinearLayout {
         }
         setText(satellites, signal);
         setText(elapsed, MainActivity.duration(live.stats().elapsedMillis()));
-        setText(average, speed(live.stats().averageSpeedMps()));
-        setText(distance, String.format(Locale.getDefault(), "%.2f", live.stats().distanceMetres() / 1000));
+        double speed = live.stats().averageSpeedMps();
+        setText(average, Double.isFinite(speed) ? String.format(Locale.getDefault(), "%.1f", units.speed(speed)) : "—");
+        setText(distance, String.format(Locale.getDefault(), "%.2f", units.distance(live.stats().distanceMetres())));
         setText(help, detail(live, hasFix));
         if (state != controlsFor || live.manualPending() != controlsManual) {
             controlsFor = state;
@@ -213,7 +216,4 @@ final class LiveTrackerPanel extends LinearLayout {
         }
     }
 
-    private static String speed(double mps) {
-        return Double.isFinite(mps) ? String.format(Locale.getDefault(), "%.1f", mps * 3.6) : "—";
-    }
 }

@@ -26,14 +26,13 @@ import androidx.core.content.ContextCompat;
 import androidx.core.location.LocationManagerCompat;
 import androidx.core.view.ViewCompat;
 
-import java.util.Locale;
-
 public final class PlaceEditorActivity extends ComponentActivity {
     static final String PLACE = "place";
     private static final int MIN_RADIUS = 20, MAX_RADIUS = 500;
     private RideStore store;
     private RideUi ui;
     private RideColors colours;
+    private Units units;
     private EditText name;
     private TextView coordinateHint;
     private PlaceMap map;
@@ -59,6 +58,9 @@ public final class PlaceEditorActivity extends ComponentActivity {
         super.onCreate(saved);
         ui = new RideUi(this);
         colours = ui.colours;
+        var preferences = TrackerService.preferences(this);
+        units = Units.resolve(preferences.getString(Units.PREFERENCE, "system"),
+                getResources().getConfiguration().getLocales().get(0));
         store = new RideStore(this);
         placeId = getIntent().getLongExtra(PLACE, 0);
         var places = store.places();
@@ -157,7 +159,8 @@ public final class PlaceEditorActivity extends ComponentActivity {
         radiusRow.addView(size);
         form.addView(radiusRow);
         SeekBar slider = new SeekBar(this);
-        slider.setContentDescription("Arrival radius, 20 to 500 metres");
+        slider.setContentDescription(getString(R.string.radius_range,
+                units.heightLabel(MIN_RADIUS), units.heightLabel(MAX_RADIUS)));
         slider.setMax(MAX_RADIUS - MIN_RADIUS);
         slider.setProgress(radius - MIN_RADIUS);
         slider.setProgressTintList(ColorStateList.valueOf(colours.accent()));
@@ -208,15 +211,14 @@ public final class PlaceEditorActivity extends ComponentActivity {
     }
 
     private String radiusLabel() {
-        return getString(R.string.radius_metres, radius);
+        return units.heightLabel(radius);
     }
 
     private void updatePositionHint() {
         if (coordinateHint == null) {
             return;
         }
-        coordinateHint.setText(Double.isFinite(lat) ? getString(R.string.map_coordinates,
-                String.format(Locale.getDefault(), "%.5f", lat), String.format(Locale.getDefault(), "%.5f", lon))
+        coordinateHint.setText(Double.isFinite(lat) ? Coordinates.label(lat, lon)
                 : getString(R.string.map_no_centre));
     }
 

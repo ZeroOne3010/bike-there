@@ -27,17 +27,19 @@ final class StatsPanel extends LinearLayout {
     private final RideCalendar calendar;
     private final YearMonth month;
     private final boolean distanceMode;
+    private final Units units;
     private final Locale locale;
     private final NumberFormat distance;
     private final NumberFormat counts;
 
-    StatsPanel(Context context, RideUi ui, RideCalendar calendar, YearMonth month, boolean distanceMode,
+    StatsPanel(Context context, RideUi ui, RideCalendar calendar, YearMonth month, Units units, boolean distanceMode,
                Consumer<YearMonth> changeMonth, Consumer<Boolean> changeMode) {
         super(context);
         this.ui = ui;
         this.colours = ui.colours;
         this.calendar = calendar;
         this.month = month;
+        this.units = units;
         this.distanceMode = distanceMode;
         locale = getResources().getConfiguration().getLocales().get(0);
         distance = NumberFormat.getNumberInstance(locale);
@@ -77,11 +79,12 @@ final class StatsPanel extends LinearLayout {
         TextView caption = ui.code(label, 11, true, colours.muted());
         caption.setLetterSpacing(.075f);
         column.addView(caption);
-        TextView kilometres = ui.title(getString(R.string.stats_km, distance.format(total.metres() / 1000)),
+        TextView distanceTotal = ui.title(getString(R.string.stats_distance, distance.format(units.distance(total.metres())),
+                units.distanceUnit),
                 30, colours.ink());
-        kilometres.setMaxLines(1);
-        kilometres.setAutoSizeTextTypeUniformWithConfiguration(14, 30, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
-        column.addView(kilometres, new LayoutParams(-1, ui.dp(42)));
+        distanceTotal.setMaxLines(1);
+        distanceTotal.setAutoSizeTextTypeUniformWithConfiguration(14, 30, 1, android.util.TypedValue.COMPLEX_UNIT_SP);
+        column.addView(distanceTotal, new LayoutParams(-1, ui.dp(42)));
         column.addView(ui.text(rideCount(total.rides()), 13, false, colours.muted()));
         return column;
     }
@@ -119,7 +122,7 @@ final class StatsPanel extends LinearLayout {
         LayoutParams first = RideUi.weight();
         first.rightMargin = ui.dp(8);
         row.addView(rides, first);
-        row.addView(modeButton("Kilometres", distanceMode, () -> changeMode.accept(true)), RideUi.weight());
+        row.addView(modeButton(units.distanceName, distanceMode, () -> changeMode.accept(true)), RideUi.weight());
         return row;
     }
 
@@ -175,7 +178,7 @@ final class StatsPanel extends LinearLayout {
         date.setGravity(Gravity.CENTER);
         date.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         cell.addView(date);
-        String metric = distanceMode ? distance.format(total.metres() / 1000) : counts.format(total.rides());
+        String metric = distanceMode ? distance.format(units.distance(total.metres())) : counts.format(total.rides());
         if (recorded) {
             TextView value = ui.title(metric, 17, ink);
             value.setMaxLines(1);
@@ -184,7 +187,8 @@ final class StatsPanel extends LinearLayout {
             value.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             cell.addView(value, new LayoutParams(-1, ui.dp(22)));
         }
-        String caption = distanceMode ? getString(R.string.stats_km, metric) : rideCount(total.rides());
+        String caption = distanceMode ? getString(R.string.stats_distance, metric, units.distanceUnit)
+                : rideCount(total.rides());
         String dateText = day.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(locale));
         cell.setContentDescription(getString(R.string.stats_day, dateText, caption));
         return cell;
