@@ -39,14 +39,7 @@ bash scripts/setup-signing.sh
 
 The script creates the signing key once, stores it and its password under `~/.bike-there-signing`, and writes the repository's Actions secrets using GitHub CLI. Keep a private backup of both files. To restore the same key, pass its backup directory to the script. The app ID and signing certificate must stay the same for Android to update an installed release.
 
-Create and push a version tag from the intended release commit:
-
-```sh
-git tag v0.6.1
-git push origin v0.6.1
-```
-
-The Android workflow tests the app, builds the APK, checks its signing certificate and attaches it to a GitHub Release. Each higher version tag produces a higher Android version code. If the secrets are set after a tag was pushed, rerun the failed release job in GitHub Actions.
+Update `version.txt` to a higher version and push the change to `main`. After tests pass, the Android workflow signs the APK, creates the matching tag and publishes the download to GitHub Releases. Pushes with an already published version still build a preview and skip publishing. A manually pushed version tag can also trigger a release. If signing was missing when the workflow ran, set it up and rerun the failed job in GitHub Actions.
 
 ### Set up signing on Android
 
@@ -60,8 +53,6 @@ gh auth setup-git
 git clone https://github.com/ZeroOne3010/bike-there.git
 cd bike-there
 bash scripts/setup-signing.sh
-git tag v0.6.1
-git push origin v0.6.1
 ```
 
 The script uses OpenSSL to generate the key in Termux and sends it to Actions as an encrypted repository secret. GitHub builds and signs the APK. If a release key already exists, restore that key and pass its backup directory to the script.

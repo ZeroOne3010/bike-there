@@ -2,6 +2,18 @@ plugins {
     id 'com.android.application' version '8.13.2'
 }
 
+def appVersion = providers.environmentVariable('BIKE_THERE_VERSION_NAME')
+        .orElse(providers.fileContents(rootProject.layout.projectDirectory.file('version.txt')).asText.map { it.trim() })
+        .get()
+if (!(appVersion ==~ /(?:0|[1-9][0-9]{0,3})\.(?:0|[1-9][0-9]{0,2})\.(?:0|[1-9][0-9]{0,2})/)) {
+    throw new GradleException("Invalid Android version: ${appVersion}")
+}
+def (major, minor, patch) = appVersion.tokenize('.').collect { it.toLong() }
+def appVersionCode = major * 1_000_000 + minor * 1_000 + patch
+if (appVersionCode < 1 || appVersionCode > 2_100_000_000) {
+    throw new GradleException("Android version code is out of range: ${appVersionCode}")
+}
+
 android {
     namespace 'dev.zeroone.bikethere'
     compileSdk 36
@@ -11,8 +23,8 @@ android {
         applicationId 'dev.zeroone.bikethere'
         minSdk 26
         targetSdk 36
-        versionCode = (System.getenv('BIKE_THERE_VERSION_CODE') ?: '6001').toInteger()
-        versionName = System.getenv('BIKE_THERE_VERSION_NAME') ?: '0.6.1'
+        versionCode = appVersionCode.toInteger()
+        versionName = appVersion
     }
 
     signingConfigs {

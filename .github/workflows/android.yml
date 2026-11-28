@@ -13,8 +13,25 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Read Android version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="v$(cat version.txt)"
+          fi
+          if [[ ! "$tag" =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+            echo 'Expected a version such as 0.6.1.' >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "BIKE_THERE_VERSION_NAME=${tag#v}" >> "$GITHUB_ENV"
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
         with:
           distribution: temurin
@@ -50,38 +67,48 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && !github.event.deleted && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-24.04
+    concurrency:
+      group: android-release-${{ needs.build.outputs.release_tag }}
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Check whether this version needs publishing
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          published=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\" and .draft == false) | .id")
+          if [[ -n "$published" ]]; then
+            echo "$RELEASE_TAG is already published."
+            exit 0
+          fi
+          ref="refs/tags/$RELEASE_TAG"
+          tagged_commit=$(git ls-remote --tags --sort=refname origin "$ref" "${ref}^{}" | awk 'END {print $1}')
+          if [[ -n "$tagged_commit" && "$tagged_commit" != "$(git rev-parse HEAD)" ]]; then
+            echo "$RELEASE_TAG already points to another commit. Publish from that tag or bump version.txt."
+            exit 0
+          fi
+          if [[ -z "$tagged_commit" ]]; then
+            echo 'create_tag=true' >> "$GITHUB_OUTPUT"
+          fi
+          echo 'needed=true' >> "$GITHUB_OUTPUT"
+          echo "BIKE_THERE_VERSION_NAME=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        if: steps.publish.outputs.needed == 'true'
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
-      - name: Derive Android version from the tag
-        shell: bash
-        run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]{0,3})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
-            echo "Expected a tag such as v0.1.0" >&2
-            exit 1
-          fi
-          major=${BASH_REMATCH[1]}
-          minor=${BASH_REMATCH[2]}
-          patch=${BASH_REMATCH[3]}
-          version_code=$((major * 1000000 + minor * 1000 + patch))
-          if (( version_code < 1 || version_code > 2100000000 )); then
-            echo "Android version code is out of range" >&2
-            exit 1
-          fi
-          {
-            echo "BIKE_THERE_VERSION_CODE=$version_code"
-            echo "BIKE_THERE_VERSION_NAME=${GITHUB_REF_NAME#v}"
-          } >> "$GITHUB_ENV"
       - name: Build and verify signed APK
+        if: steps.publish.outputs.needed == 'true'
         env:
           SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           BIKE_THERE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -106,8 +133,15 @@ jobs:
             echo "APK signing certificate does not match the configured release key." >&2
             exit 1
           fi
-          cp "$apk" "Bike-There-$GITHUB_REF_NAME.apk"
+          cp "$apk" "Bike-There-$RELEASE_TAG.apk"
       - name: Publish APK to GitHub Releases
+        if: steps.publish.outputs.needed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "Bike-There-$GITHUB_REF_NAME.apk" --verify-tag --generate-notes
+          CREATE_TAG: ${{ steps.publish.outputs.create_tag }}
+        shell: bash
+        run: |
+          if [[ "$CREATE_TAG" == 'true' ]]; then
+            git push origin "HEAD:refs/tags/$RELEASE_TAG"
+          fi
+          gh release create "$RELEASE_TAG" "Bike-There-$RELEASE_TAG.apk" --verify-tag --generate-notes
